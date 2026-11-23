@@ -3,11 +3,15 @@ import torch
 import gymnasium as gym
 import argparse
 import os
+import shutil
 import wandb
 import yaml
 import random
 import time
 from tqdm import tqdm
+
+# [ascend] 设备选择（auto → npu → cuda → cpu）
+from utils.device import get_device
 
 import ev2gym
 from ev2gym.rl_agent.reward import ProfitMax_TrPenalty_UserIncentives
@@ -43,6 +47,18 @@ class PyGDataSpace(Space):
 
     def contains(self, x):
         return isinstance(x, Data)
+
+def _safe_copy(src, dst_dir):
+    """[ascend] 跨平台复制：源文件缺失只告警，不中断训练（原 os.system('cp') 在 Windows/Linux 都可能静默失败）。"""
+    try:
+        if not os.path.exists(src):
+            print(f"[warn] 跳过复制，源文件不存在: {src}")
+            return
+        os.makedirs(dst_dir, exist_ok=True)
+        shutil.copy2(src, dst_dir)
+    except Exception as exc:
+        print(f"[warn] 复制失败 {src} -> {dst_dir}: {exc}")
+
 
 # Runs policy for X episodes and returns average reward
 # A fixed seed is used for the eval environment
@@ -100,10 +116,11 @@ if __name__ == "__main__":
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--max_timesteps", default=1e7, type=int)  # 1e7
     parser.add_argument("--load_model", default="")
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--device", default="auto",
+                        help="auto | cpu | cuda:0 | npu:0")
     parser.add_argument('--group_name', type=str, default='')
 
-    DEVELOPMENT = False
+    DEVELOPMENT = True  # [local] 关掉 wandb 上报，只跑 2 个 eval episode、batch=3
 
     if DEVELOPMENT:
         parser.add_argument('--log_to_wandb', '-w', type=bool, default=False)
@@ -184,9 +201,8 @@ if __name__ == "__main__":
     if args.discrete_actions > 1 and args.policy != "TD3_ActionGNN":
         raise ValueError(f"{args.policy} does not support discrete actions.")
 
-    device = args.device
-    device = device if torch.cuda.is_available() else 'cpu'
-    print(f'device: {device}')
+    device = get_device(args.device)
+    print(f'device: {device} ({device.type})')
 
     replay_buffer_size = int(args.replay_buffer_size)
 
@@ -354,15 +370,17 @@ if __name__ == "__main__":
         if args.policy == "TD3_GNN":
             policy = TD3_GNN(**kwargs)
             replay_buffer = GNN_ReplayBuffer(action_dim=action_dim,
-                                             max_size=replay_buffer_size,)
+                                             max_size=replay_buffer_size,
+                                             device=device)
             # save the TD3_utils.py file using cp
-            os.system(f'cp TD3/TD3_utils.py {save_path}')
+            _safe_copy('TD3/TD3_utils.py', save_path)
 
         elif args.policy == "TD3_ActionGNN":
             policy = TD3_ActionGNN(**kwargs)
             replay_buffer = ActionGNN_ReplayBuffer(action_dim=action_dim,
-                                                   max_size=replay_buffer_size,)
-            os.system(f'cp TD3/TD3_Actionutils.py {save_path}')
+                                                   max_size=replay_buffer_size,
+                                                   device=device)
+            _safe_copy('TD3/TD3_Actionutils.py', save_path)
 
     elif args.policy == "TD3":
         state_dim = env.observation_space.shape[0]
@@ -405,24 +423,26 @@ if __name__ == "__main__":
                          fx_node_sizes=fx_node_sizes,
                          GNN_fx=True)
             replay_buffer = GNN_ReplayBuffer(action_dim=action_dim,
-                                             max_size=replay_buffer_size,)
-            os.system(f'cp SAC/sac.py {save_path}')
+                                             max_size=replay_buffer_size,
+                                             device=device)
+            _safe_copy('SAC/sac.py', save_path)
 
         elif args.policy == "SAC_ActionGNN":
             policy = SAC_ActionGNN(action_space=env.action_space,
                                    fx_node_sizes=fx_node_sizes,
                                    args=kwargs,)
             replay_buffer = ActionGNN_ReplayBuffer(action_dim=action_dim,
-                                                   max_size=replay_buffer_size,)
-            os.system(f'cp SAC/actionSAC.py {save_path}')
+                                                   max_size=replay_buffer_size,
+                                                   device=device)
+            _safe_copy('SAC/actionSAC.py', save_path)
 
         elif args.policy == "SAC":
             state_dim = env.observation_space.shape[0]
             policy = SAC(num_inputs=state_dim,
                          action_space=env.action_space,
                          args=kwargs)
-            replay_buffer = ReplayBuffer(state_dim, action_dim)
-            os.system(f'cp SAC/sac.py {save_path}')
+            replay_buffer = ReplayBuffer(state_dim, action_dim, device=device)
+            _safe_copy('SAC/sac.py', save_path)
 
     else:
         raise ValueError("Policy not recognized.")

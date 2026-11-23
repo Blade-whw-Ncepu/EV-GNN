@@ -2,6 +2,8 @@
 
 import yaml
 import os
+import shutil
+import sys
 import pickle
 from copy import deepcopy
 import pandas as pd
@@ -9,22 +11,44 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import datetime
+
+def _missing_baseline(name, need):
+    """[ascend] 未安装的基线依赖，调用时给出明确提示而不是 NameError。"""
+    def _raiser(*args, **kwargs):
+        raise RuntimeError(f"{name} 不可用：需要 {need}（昇腾镜像里已按要求剔除）")
+    return _raiser
+
+
 import time
 
 from ev2gym.models.ev2gym_env import EV2Gym
 
 from ev2gym.baselines.heuristics import RoundRobin, ChargeAsLateAsPossible, ChargeAsFastAsPossible
 from ev2gym.baselines.heuristics import ChargeAsFastAsPossibleToDesiredCapacity
-from ev2gym.baselines.heuristics import RoundRobin_GF_off_allowed, RoundRobin_GF
+try:
+    from ev2gym.baselines.heuristics import RoundRobin_GF_off_allowed, RoundRobin_GF
+except Exception:   # [ascend] 这两个是 EV2Gym 2.0 才有的启发式基线
+    RoundRobin_GF_off_allowed = RoundRobin_GF = _missing_baseline(
+        "RoundRobin_GF", "ev2gym 2.0 的启发式基线")
 
-from ev2gym.baselines.mpc.ocmf_mpc import OCMF_V2G, OCMF_G2V
-from ev2gym.baselines.mpc.eMPC import eMPC_V2G, eMPC_G2V
-from ev2gym.baselines.mpc.eMPC_v2 import eMPC_V2G_v2
+# [ascend] MPC / SB3 / Gurobi 基线按需导入：昇腾镜像不装 gurobipy 与 sb3 也能跑 RL 评估
+try:
+    from ev2gym.baselines.mpc.ocmf_mpc import OCMF_V2G, OCMF_G2V
+    from ev2gym.baselines.mpc.eMPC import eMPC_V2G, eMPC_G2V
+    from ev2gym.baselines.mpc.eMPC_v2 import eMPC_V2G_v2
+    from ev2gym.baselines.mpc.V2GProfitMax import V2GProfitMaxOracle, V2GProfitMaxLoadsOracle
+except Exception:
+    OCMF_V2G = OCMF_G2V = eMPC_V2G = eMPC_G2V = eMPC_V2G_v2 = \
+        _missing_baseline("MPC", "gurobipy")
+    V2GProfitMaxOracle = V2GProfitMaxLoadsOracle = \
+        _missing_baseline("V2GProfitMax", "gurobipy")
 
-from ev2gym.baselines.mpc.V2GProfitMax import V2GProfitMaxOracle, V2GProfitMaxLoadsOracle
-
-from stable_baselines3 import PPO, A2C, DDPG, SAC
-from sb3_contrib import TQC, TRPO, ARS, RecurrentPPO
+try:
+    from stable_baselines3 import PPO, A2C, DDPG, SAC
+    from sb3_contrib import TQC, TRPO, ARS, RecurrentPPO
+except Exception:
+    PPO = A2C = DDPG = TQC = TRPO = ARS = RecurrentPPO = \
+        _missing_baseline("SB3 算法", "stable-baselines3 / sb3-contrib")
 
 
 # GNN-based models evaluations
@@ -43,8 +67,14 @@ from utils.state import PublicPST_GNN, V2G_ProfitMax_with_Loads_GNN
 # from DT.models.decision_transformer import DecisionTransformer
 # from DT.load_model import load_DT_model
 
-from ev2gym.baselines.gurobi_models.tracking_error import PowerTrackingErrorrMin
-from ev2gym.baselines.gurobi_models.profit_max import V2GProfitMaxOracleGB
+try:
+    from ev2gym.baselines.gurobi_models.tracking_error import PowerTrackingErrorrMin
+    from ev2gym.baselines.gurobi_models.profit_max import V2GProfitMaxOracleGB
+except Exception:
+    PowerTrackingErrorrMin = _missing_baseline(
+        "PowerTrackingErrorrMin", "gurobipy")
+    V2GProfitMaxOracleGB = _missing_baseline(
+        "V2GProfitMaxOracleGB", "gurobipy")
 
 from ev2gym.rl_agent.reward import SquaredTrackingErrorReward, SimpleReward
 from ev2gym.rl_agent.reward import profit_maximization, ProfitMax_TrPenalty_UserIncentives
@@ -54,6 +84,9 @@ from ev2gym.visuals.evaluator_plot import plot_total_power, plot_comparable_EV_S
 from ev2gym.visuals.evaluator_plot import plot_total_power_V2G, plot_actual_power_vs_setpoint
 from ev2gym.visuals.evaluator_plot import plot_comparable_EV_SoC_single, plot_prices
 
+# [ascend] 该模块在仓库的 Results_Analysis/ 下，补一条 path 以便直接运行
+sys.path.append(str(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "Results_Analysis")))
 from state_action_eda import AnalysisReplayBuffer
 
 import gymnasium as gym
@@ -61,7 +94,7 @@ import torch
 
 
 def evaluator():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = get_device("auto")
 
     ############# Simulation Parameters #################
     n_test_cycles = 1
@@ -265,7 +298,11 @@ def evaluator():
     # make a directory for the evaluation
     save_path = f'./results/{evaluation_name}/'
     os.makedirs(save_path, exist_ok=True)
-    os.system(f'cp {config_file} {save_path}')
+    # [ascend] os.system('cp') 在 Windows 上不可用，改用 shutil
+    try:
+        shutil.copy2(config_file, save_path)
+    except Exception as exc:
+        print(f"[warn] 复制配置失败: {exc}")
 
     if not replays_exist:
         eval_replay_files = [generate_replay(
@@ -402,7 +439,8 @@ def evaluator():
                                                           args=kwargs,)
 
                             if "extraLayers" in algorithm:
-                                state_dict = torch.load(f'{load_model_path}model.best')[
+                                state_dict = torch.load(f'{load_model_path}model.best',
+                                                map_location=device)[
                                     'policy_state_dict']
                                 new_state_dict = {}
                                 rename_map = {

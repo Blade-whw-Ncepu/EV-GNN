@@ -18,6 +18,11 @@ import torch_geometric.transforms as T
 # Paper: https://arxiv.org/abs/1802.09477
 
 
+# [ascend] 设备选择 + 纯张量图算子（去 CUDA / 去 PyG C++ 扩展依赖）
+from utils.device import get_device, as_device
+from utils.ascend_layers import AscendGCNConv, ascend_global_mean_pool
+
+
 class Actor(nn.Module):
     def __init__(self,
                  max_action,
@@ -29,7 +34,7 @@ class Actor(nn.Module):
                  device=torch.device('cpu')):
         super(Actor, self).__init__()
 
-        self.device = device
+        self.device = as_device(device)
         self.feature_dim = feature_dim
         self.discrete_actions = discrete_actions
         self.num_gcn_layers = num_gcn_layers
@@ -41,30 +46,30 @@ class Actor(nn.Module):
         self.env_embedding = nn.Linear(fx_node_sizes['env'], feature_dim)
 
         # GCN layers to extract features with a unified edge index
-        self.gcn_conv = GCNConv(feature_dim, GNN_hidden_dim)
+        self.gcn_conv = AscendGCNConv(feature_dim, GNN_hidden_dim)
         
         if num_gcn_layers == 3:
             self.gcn_layers = nn.ModuleList(
-                [GCNConv(GNN_hidden_dim, feature_dim)])
+                [AscendGCNConv(GNN_hidden_dim, feature_dim)])
 
         elif num_gcn_layers == 4:
-            self.gcn_layers = nn.ModuleList([GCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
-                                             GCNConv(2*GNN_hidden_dim, feature_dim)])
+            self.gcn_layers = nn.ModuleList([AscendGCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
+                                             AscendGCNConv(2*GNN_hidden_dim, feature_dim)])
 
         elif num_gcn_layers == 5:
-            self.gcn_layers = nn.ModuleList([GCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
-                                             GCNConv(2*GNN_hidden_dim, GNN_hidden_dim),
-                                             GCNConv(GNN_hidden_dim, feature_dim)])
+            self.gcn_layers = nn.ModuleList([AscendGCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
+                                             AscendGCNConv(2*GNN_hidden_dim, GNN_hidden_dim),
+                                             AscendGCNConv(GNN_hidden_dim, feature_dim)])
         elif num_gcn_layers == 6:
-            self.gcn_layers = nn.ModuleList([GCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
-                                             GCNConv(2*GNN_hidden_dim, 3*GNN_hidden_dim),
-                                             GCNConv(3*GNN_hidden_dim, 2*GNN_hidden_dim),
-                                             GCNConv(2*GNN_hidden_dim, feature_dim)])
+            self.gcn_layers = nn.ModuleList([AscendGCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
+                                             AscendGCNConv(2*GNN_hidden_dim, 3*GNN_hidden_dim),
+                                             AscendGCNConv(3*GNN_hidden_dim, 2*GNN_hidden_dim),
+                                             AscendGCNConv(2*GNN_hidden_dim, feature_dim)])
         else:
             raise ValueError(
                 f"Number of Actor GCN layers not supported, use 3, 4, 5, or 6!")
 
-        self.gcn_last = GCNConv(feature_dim, discrete_actions)
+        self.gcn_last = AscendGCNConv(feature_dim, discrete_actions)
 
         self.max_action = max_action
 
@@ -97,12 +102,24 @@ class Actor(nn.Module):
             total_nodes, self.feature_dim, device=self.device).float()
 
         # Apply embeddings to the corresponding segments
-        if len(state.ev_indexes) != 0:
-            embedded_x[state.ev_indexes] = self.ev_embedding(ev_features)
-            embedded_x[state.cs_indexes] = self.cs_embedding(cs_features)
-            embedded_x[state.tr_indexes] = self.tr_embedding(tr_features)
+        # [ascend] 空张量防护：reset 第 0 步只有 env 节点，ev/cs/tr 索引为空
+        ev_idx = torch.as_tensor(
+            state.ev_indexes, dtype=torch.long, device=self.device)
+        cs_idx = torch.as_tensor(
+            state.cs_indexes, dtype=torch.long, device=self.device)
+        tr_idx = torch.as_tensor(
+            state.tr_indexes, dtype=torch.long, device=self.device)
+        env_idx = torch.as_tensor(
+            state.env_indexes, dtype=torch.long, device=self.device)
 
-        embedded_x[state.env_indexes] = self.env_embedding(env_features)
+        if ev_idx.numel() > 0:
+            embedded_x[ev_idx] = self.ev_embedding(ev_features)
+        if cs_idx.numel() > 0:
+            embedded_x[cs_idx] = self.cs_embedding(cs_features)
+        if tr_idx.numel() > 0:
+            embedded_x[tr_idx] = self.tr_embedding(tr_features)
+        if env_idx.numel() > 0:
+            embedded_x[env_idx] = self.env_embedding(env_features)
 
         embedded_x = embedded_x.reshape(-1, self.feature_dim)
         embedded_x = F.relu(embedded_x)
@@ -133,7 +150,7 @@ class Actor(nn.Module):
         # input()
         # x = x * valid_action_indexes
         if return_mapper:
-            return x, None, state.ev_indexes
+            return x, None, ev_idx
         else:
             return x
 
@@ -166,12 +183,24 @@ class Actor(nn.Module):
             total_nodes, self.feature_dim, device=self.device).float()
 
         # Apply embeddings to the corresponding segments
-        if len(state.ev_indexes) != 0:
-            embedded_x[state.ev_indexes] = self.ev_embedding(ev_features)
-            embedded_x[state.cs_indexes] = self.cs_embedding(cs_features)
-            embedded_x[state.tr_indexes] = self.tr_embedding(tr_features)
+        # [ascend] 空张量防护：reset 第 0 步只有 env 节点，ev/cs/tr 索引为空
+        ev_idx = torch.as_tensor(
+            state.ev_indexes, dtype=torch.long, device=self.device)
+        cs_idx = torch.as_tensor(
+            state.cs_indexes, dtype=torch.long, device=self.device)
+        tr_idx = torch.as_tensor(
+            state.tr_indexes, dtype=torch.long, device=self.device)
+        env_idx = torch.as_tensor(
+            state.env_indexes, dtype=torch.long, device=self.device)
 
-        embedded_x[state.env_indexes] = self.env_embedding(env_features)
+        if ev_idx.numel() > 0:
+            embedded_x[ev_idx] = self.ev_embedding(ev_features)
+        if cs_idx.numel() > 0:
+            embedded_x[cs_idx] = self.cs_embedding(cs_features)
+        if tr_idx.numel() > 0:
+            embedded_x[tr_idx] = self.tr_embedding(tr_features)
+        if env_idx.numel() > 0:
+            embedded_x[env_idx] = self.env_embedding(env_features)
 
         embedded_x = embedded_x.reshape(-1, self.feature_dim)
         output_1 = embedded_x.clone().detach().cpu().numpy()
@@ -217,7 +246,7 @@ class Critic_GNN(nn.Module):
                  device=torch.device('cpu')):
         super(Critic_GNN, self).__init__()
 
-        self.device = device
+        self.device = as_device(device)
         self.feature_dim = feature_dim
         self.discrete_actions = discrete_actions        
         # Node-specific embedding layers
@@ -227,25 +256,25 @@ class Critic_GNN(nn.Module):
         self.env_embedding = nn.Linear(fx_node_sizes['env'], feature_dim)
 
         # GCN layers to extract features with a unified edge index
-        self.gcn_conv = GCNConv(feature_dim+discrete_actions, GNN_hidden_dim)
+        self.gcn_conv = AscendGCNConv(feature_dim+discrete_actions, GNN_hidden_dim)
         
         if num_gcn_layers == 3:
             self.gcn_layers = nn.ModuleList(
-                [GCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
-                    GCNConv(2*GNN_hidden_dim, 3*GNN_hidden_dim)])
+                [AscendGCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
+                    AscendGCNConv(2*GNN_hidden_dim, 3*GNN_hidden_dim)])
             mlp_layer_features = 3*GNN_hidden_dim
             
         elif num_gcn_layers == 4:
-            self.gcn_layers = nn.ModuleList([GCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
-                                             GCNConv(2*GNN_hidden_dim,3*GNN_hidden_dim),
-                                                GCNConv(3*GNN_hidden_dim, 2*GNN_hidden_dim)])            
+            self.gcn_layers = nn.ModuleList([AscendGCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
+                                             AscendGCNConv(2*GNN_hidden_dim,3*GNN_hidden_dim),
+                                                AscendGCNConv(3*GNN_hidden_dim, 2*GNN_hidden_dim)])            
             mlp_layer_features = 2*GNN_hidden_dim
             
         elif num_gcn_layers == 5:
-            self.gcn_layers = nn.ModuleList([GCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
-                                                GCNConv(2*GNN_hidden_dim, 3*GNN_hidden_dim),
-                                                GCNConv(3*GNN_hidden_dim, 4*GNN_hidden_dim),
-                                                GCNConv(4*GNN_hidden_dim, 3*GNN_hidden_dim)
+            self.gcn_layers = nn.ModuleList([AscendGCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
+                                                AscendGCNConv(2*GNN_hidden_dim, 3*GNN_hidden_dim),
+                                                AscendGCNConv(3*GNN_hidden_dim, 4*GNN_hidden_dim),
+                                                AscendGCNConv(4*GNN_hidden_dim, 3*GNN_hidden_dim)
                                                 ])
             mlp_layer_features = 3*GNN_hidden_dim
             
@@ -275,12 +304,24 @@ class Critic_GNN(nn.Module):
                                  device=self.device).float()
 
         # Apply embeddings to the corresponding segments
-        if len(state.ev_indexes) != 0:
-            embedded_x[state.ev_indexes] = self.ev_embedding(ev_features)
-            embedded_x[state.cs_indexes] = self.cs_embedding(cs_features)
-            embedded_x[state.tr_indexes] = self.tr_embedding(tr_features)
+        # [ascend] 空张量防护：reset 第 0 步只有 env 节点，ev/cs/tr 索引为空
+        ev_idx = torch.as_tensor(
+            state.ev_indexes, dtype=torch.long, device=self.device)
+        cs_idx = torch.as_tensor(
+            state.cs_indexes, dtype=torch.long, device=self.device)
+        tr_idx = torch.as_tensor(
+            state.tr_indexes, dtype=torch.long, device=self.device)
+        env_idx = torch.as_tensor(
+            state.env_indexes, dtype=torch.long, device=self.device)
 
-        embedded_x[state.env_indexes] = self.env_embedding(env_features)
+        if ev_idx.numel() > 0:
+            embedded_x[ev_idx] = self.ev_embedding(ev_features)
+        if cs_idx.numel() > 0:
+            embedded_x[cs_idx] = self.cs_embedding(cs_features)
+        if tr_idx.numel() > 0:
+            embedded_x[tr_idx] = self.tr_embedding(tr_features)
+        if env_idx.numel() > 0:
+            embedded_x[env_idx] = self.env_embedding(env_features)
 
         embedded_x = embedded_x.reshape(-1, self.feature_dim)
         embedded_x = F.relu(embedded_x)
@@ -307,7 +348,7 @@ class Critic_GNN(nn.Module):
             counter += sample_node_length[i]
 
         # Graph Embedding
-        pooled_embedding = global_mean_pool(x, batch=batch)
+        pooled_embedding = ascend_global_mean_pool(x, batch=batch)
 
         # Apply MLP
         x = F.relu(self.l1(pooled_embedding))
@@ -328,7 +369,7 @@ class Critic(nn.Module):
                  device=torch.device('cpu')):
         super(Critic, self).__init__()
 
-        self.device = device
+        self.device = as_device(device)
         self.feature_dim = feature_dim
 
         self.q1 = Critic_GNN(feature_dim=feature_dim,
@@ -374,8 +415,7 @@ class TD3_ActionGNN(object):
             critic_num_gcn_layers = 3,
             **kwargs
     ):
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu")
+        self.device = as_device(kwargs.get("device", "auto"))
         self.discrete_actions = discrete_actions
 
         self.actor = Actor(max_action,
@@ -515,12 +555,12 @@ class TD3_ActionGNN(object):
                    filename + "_actor_optimizer")
 
     def load(self, filename):
-        self.critic.load_state_dict(torch.load(filename + "_critic"))
+        self.critic.load_state_dict(torch.load(filename + "_critic", map_location=self.device))
         self.critic_optimizer.load_state_dict(
-            torch.load(filename + "_critic_optimizer"))
+            torch.load(filename + "_critic_optimizer", map_location=self.device))
         self.critic_target = copy.deepcopy(self.critic)
 
-        self.actor.load_state_dict(torch.load(filename + "_actor"))
+        self.actor.load_state_dict(torch.load(filename + "_actor", map_location=self.device))
         self.actor_optimizer.load_state_dict(
-            torch.load(filename + "_actor_optimizer"))
+            torch.load(filename + "_actor_optimizer", map_location=self.device))
         self.actor_target = copy.deepcopy(self.actor)

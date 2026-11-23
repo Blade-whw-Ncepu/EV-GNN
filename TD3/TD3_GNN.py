@@ -18,6 +18,11 @@ import torch_geometric.transforms as T
 # Paper: https://arxiv.org/abs/1802.09477
 
 
+# [ascend] 设备选择 + 纯张量图算子（去 CUDA / 去 PyG C++ 扩展依赖）
+from utils.device import get_device, as_device
+from utils.ascend_layers import AscendGCNConv, ascend_global_mean_pool
+
+
 class GNN_Redisual_Feature_Extractor(nn.Module):
     def __init__(self,
                  feature_dim=8,
@@ -27,7 +32,7 @@ class GNN_Redisual_Feature_Extractor(nn.Module):
 
         super(GNN_Redisual_Feature_Extractor, self).__init__()
 
-        self.device = device
+        self.device = as_device(device)
         self.feature_dim = feature_dim
 
         # Node-specific embedding layers
@@ -38,11 +43,11 @@ class GNN_Redisual_Feature_Extractor(nn.Module):
 
         # GCN and GAT layers to extract features with a unified edge index
         # GCN layer with 8 input, 16 output
-        self.gcn_conv = GCNConv(feature_dim, GNN_hidden_dim)
-        self.gcn_conv2 = GCNConv(GNN_hidden_dim, 2*GNN_hidden_dim)
-        # self.gcn_conv3 = GCNConv(2*GNN_hidden_dim, 3*GNN_hidden_dim)
-        # self.gcn_conv4 = GCNConv(3*GNN_hidden_dim, 2*GNN_hidden_dim)
-        self.gcn_conv5 = GCNConv(2*GNN_hidden_dim, GNN_hidden_dim)
+        self.gcn_conv = AscendGCNConv(feature_dim, GNN_hidden_dim)
+        self.gcn_conv2 = AscendGCNConv(GNN_hidden_dim, 2*GNN_hidden_dim)
+        # self.gcn_conv3 = AscendGCNConv(2*GNN_hidden_dim, 3*GNN_hidden_dim)
+        # self.gcn_conv4 = AscendGCNConv(3*GNN_hidden_dim, 2*GNN_hidden_dim)
+        self.gcn_conv5 = AscendGCNConv(2*GNN_hidden_dim, GNN_hidden_dim)
 
     def forward(self, data):
 
@@ -76,12 +81,24 @@ class GNN_Redisual_Feature_Extractor(nn.Module):
             total_nodes, self.feature_dim, device=self.device).float()
 
         # Apply embeddings to the corresponding segments
-        if len(data.ev_indexes) != 0:
-            embedded_x[data.ev_indexes] = self.ev_embedding(ev_features)
-            embedded_x[data.cs_indexes] = self.cs_embedding(cs_features)
-            embedded_x[data.tr_indexes] = self.tr_embedding(tr_features)
+        # [ascend] 空张量防护：reset 第 0 步只有 env 节点，ev/cs/tr 索引为空
+        ev_idx = torch.as_tensor(
+            data.ev_indexes, dtype=torch.long, device=self.device)
+        cs_idx = torch.as_tensor(
+            data.cs_indexes, dtype=torch.long, device=self.device)
+        tr_idx = torch.as_tensor(
+            data.tr_indexes, dtype=torch.long, device=self.device)
+        env_idx = torch.as_tensor(
+            data.env_indexes, dtype=torch.long, device=self.device)
 
-        embedded_x[data.env_indexes] = self.env_embedding(env_features)
+        if ev_idx.numel() > 0:
+            embedded_x[ev_idx] = self.ev_embedding(ev_features)
+        if cs_idx.numel() > 0:
+            embedded_x[cs_idx] = self.cs_embedding(cs_features)
+        if tr_idx.numel() > 0:
+            embedded_x[tr_idx] = self.tr_embedding(tr_features)
+        if env_idx.numel() > 0:
+            embedded_x[env_idx] = self.env_embedding(env_features)
 
         embedded_x = embedded_x.reshape(-1, self.feature_dim)
 
@@ -113,7 +130,7 @@ class GNN_Redisual_Feature_Extractor(nn.Module):
             batch[counter: counter + sample_node_length[i]] = i
             counter += sample_node_length[i]
 
-        pooled_embedding = global_mean_pool(x, batch=batch)
+        pooled_embedding = ascend_global_mean_pool(x, batch=batch)
 
         # print(f'Pooled embedding shape: {pooled_embedding.shape}')
         return pooled_embedding
@@ -129,7 +146,7 @@ class GNN_Feature_Extractor(nn.Module):
 
         super(GNN_Feature_Extractor, self).__init__()
 
-        self.device = device
+        self.device = as_device(device)
         self.feature_dim = feature_dim
         self.num_heads = num_heads
 
@@ -141,9 +158,9 @@ class GNN_Feature_Extractor(nn.Module):
 
         # GCN and GAT layers to extract features with a unified edge index
         # GCN layer with 8 input, 16 output
-        self.gcn_conv = GCNConv(feature_dim, GNN_hidden_dim)
-        self.gcn_conv2 = GCNConv(GNN_hidden_dim, 2*GNN_hidden_dim)
-        self.gcn_conv3 = GCNConv(2*GNN_hidden_dim, 4*GNN_hidden_dim)
+        self.gcn_conv = AscendGCNConv(feature_dim, GNN_hidden_dim)
+        self.gcn_conv2 = AscendGCNConv(GNN_hidden_dim, 2*GNN_hidden_dim)
+        self.gcn_conv3 = AscendGCNConv(2*GNN_hidden_dim, 4*GNN_hidden_dim)
 
         # self.gcn_conv = GATv2Conv(feature_dim, GNN_hidden_dim, heads=num_heads)
         # self.gcn_conv2 = GATv2Conv(
@@ -201,12 +218,24 @@ class GNN_Feature_Extractor(nn.Module):
             total_nodes, self.feature_dim, device=self.device).float()
 
         # Apply embeddings to the corresponding segments
-        if len(data.ev_indexes) != 0:
-            embedded_x[data.ev_indexes] = self.ev_embedding(ev_features)
-            embedded_x[data.cs_indexes] = self.cs_embedding(cs_features)
-            embedded_x[data.tr_indexes] = self.tr_embedding(tr_features)
+        # [ascend] 空张量防护：reset 第 0 步只有 env 节点，ev/cs/tr 索引为空
+        ev_idx = torch.as_tensor(
+            data.ev_indexes, dtype=torch.long, device=self.device)
+        cs_idx = torch.as_tensor(
+            data.cs_indexes, dtype=torch.long, device=self.device)
+        tr_idx = torch.as_tensor(
+            data.tr_indexes, dtype=torch.long, device=self.device)
+        env_idx = torch.as_tensor(
+            data.env_indexes, dtype=torch.long, device=self.device)
 
-        embedded_x[data.env_indexes] = self.env_embedding(env_features)
+        if ev_idx.numel() > 0:
+            embedded_x[ev_idx] = self.ev_embedding(ev_features)
+        if cs_idx.numel() > 0:
+            embedded_x[cs_idx] = self.cs_embedding(cs_features)
+        if tr_idx.numel() > 0:
+            embedded_x[tr_idx] = self.tr_embedding(tr_features)
+        if env_idx.numel() > 0:
+            embedded_x[env_idx] = self.env_embedding(env_features)
 
         embedded_x = embedded_x.reshape(-1, self.feature_dim)
 
@@ -245,9 +274,9 @@ class GNN_Feature_Extractor(nn.Module):
 
         #     # print(f'graph {i} pooling')
         #     # print(x[node_counter:node_counter+sample_node_length[i], :].shape)
-        #     # print(global_mean_pool(
+        #     # print(ascend_global_mean_pool(
         #     #     x[node_counter:node_counter+sample_node_length[i], :],batch=None))
-        #     # pooled_embedding[i, :] = global_mean_pool(
+        #     # pooled_embedding[i, :] = ascend_global_mean_pool(
         #     #     x[node_counter:node_counter+sample_node_length[i], :],batch=None)
 
         #     pooled_embedding[i, :] = global_max_pool(
@@ -256,14 +285,14 @@ class GNN_Feature_Extractor(nn.Module):
         #     node_counter += sample_node_length[i]
 
         # pooled_embedding = global_add_pool(x, batch=batch)
-        # pooled_embedding = global_mean_pool(x, batch=batch)
+        # pooled_embedding = ascend_global_mean_pool(x, batch=batch)
         # print(f'batch: {batch}')
         # print(f'x shape: {x.shape}')
         # print(f'{self.sag_pool(x, edge_index=edge_index, batch=batch)}')
         # x, edge_index, _, batch, _, _ = self.sag_pool(
         #     x, edge_index=edge_index, batch=batch)
         # print(f'x~ shape: {x.shape}')
-        pooled_embedding = global_mean_pool(x, batch=batch)
+        pooled_embedding = ascend_global_mean_pool(x, batch=batch)
 
         # print(f'Pooled embedding: {pooled_embedding}')
         # print(f'Pooled embedding shape: {pooled_embedding.shape}')
@@ -274,15 +303,16 @@ class GNN_Feature_Extractor(nn.Module):
 class Actor(nn.Module):
     def __init__(self, state_dim, action_dim, max_action, fx_node_sizes,
                  fx_dim=8, fx_GNN_hidden_dim=32, num_heads=2,
-                 mlp_hidden_dim=256):
+                 mlp_hidden_dim=256, device=None):
         super(Actor, self).__init__()
+        device = as_device(device)
 
         # self.feature_extractor = feature_extractor
         self.feature_extractor = GNN_Feature_Extractor(feature_dim=fx_dim,
                                                        fx_node_sizes=fx_node_sizes,
                                                        GNN_hidden_dim=fx_GNN_hidden_dim,
                                                        num_heads=num_heads,
-                                                       device=torch.device('cuda'))
+                                                       device=device)
 
         self.l1 = nn.Linear(state_dim, mlp_hidden_dim)
         self.l2 = nn.Linear(mlp_hidden_dim, mlp_hidden_dim)
@@ -302,15 +332,17 @@ class Actor(nn.Module):
 
 class Critic(nn.Module):
     def __init__(self, state_dim, action_dim,
-                 fx_node_sizes, fx_dim=8, fx_GNN_hidden_dim=32, num_heads=2, mlp_hidden_dim=256):
+                 fx_node_sizes, fx_dim=8, fx_GNN_hidden_dim=32, num_heads=2,
+                 mlp_hidden_dim=256, device=None):
         super(Critic, self).__init__()
+        device = as_device(device)
 
         # self.feature_extractor = feature_extractor
         self.feature_extractor = GNN_Feature_Extractor(feature_dim=fx_dim,
                                                        fx_node_sizes=fx_node_sizes,
                                                        GNN_hidden_dim=fx_GNN_hidden_dim,
                                                        num_heads=num_heads,
-                                                       device=torch.device('cuda'))
+                                                       device=device)
 
         # Q1 architecture
         self.l1 = nn.Linear(state_dim + action_dim, mlp_hidden_dim)
@@ -365,8 +397,7 @@ class TD3_GNN(object):
             lr=3e-4,
             **kwargs
     ):
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu")
+        self.device = as_device(kwargs.get("device", "auto"))
 
         ###### Check this   ########
         gnn_output_dim = 4*fx_GNN_hidden_dim
@@ -379,6 +410,7 @@ class TD3_GNN(object):
                            fx_dim=fx_dim,
                            fx_GNN_hidden_dim=fx_GNN_hidden_dim,
                            mlp_hidden_dim=mlp_hidden_dim,
+                           device=self.device,
                            ).to(self.device)
 
         self.actor_target = copy.deepcopy(self.actor).to(self.device)
@@ -391,6 +423,7 @@ class TD3_GNN(object):
                              fx_dim=fx_dim,
                              fx_GNN_hidden_dim=fx_GNN_hidden_dim,
                              mlp_hidden_dim=mlp_hidden_dim,
+                             device=self.device,
                              ).to(self.device)
         self.critic_target = copy.deepcopy(self.critic).to(self.device)
         self.critic_optimizer = torch.optim.Adam(
@@ -479,12 +512,12 @@ class TD3_GNN(object):
                    filename + "_actor_optimizer")
 
     def load(self, filename):
-        self.critic.load_state_dict(torch.load(filename + "_critic"))
+        self.critic.load_state_dict(torch.load(filename + "_critic", map_location=self.device))
         self.critic_optimizer.load_state_dict(
-            torch.load(filename + "_critic_optimizer"))
+            torch.load(filename + "_critic_optimizer", map_location=self.device))
         self.critic_target = copy.deepcopy(self.critic)
 
-        self.actor.load_state_dict(torch.load(filename + "_actor"))
+        self.actor.load_state_dict(torch.load(filename + "_actor", map_location=self.device))
         self.actor_optimizer.load_state_dict(
-            torch.load(filename + "_actor_optimizer"))
+            torch.load(filename + "_actor_optimizer", map_location=self.device))
         self.actor_target = copy.deepcopy(self.actor)

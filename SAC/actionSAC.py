@@ -7,6 +7,11 @@ from SAC.utils import soft_update, hard_update
 from SAC.model import GaussianPolicy_ActionGNN, Critic_GNN
 
 
+# [ascend] 设备选择 + 纯张量图算子（去 CUDA / 去 PyG C++ 扩展依赖）
+from utils.device import get_device, as_device
+from utils.ascend_layers import AscendGCNConv, ascend_global_mean_pool
+
+
 class SAC_ActionGNN(object):
 
     algo_name = "SAC ActionGNN"
@@ -24,7 +29,7 @@ class SAC_ActionGNN(object):
         self.target_update_interval = args['target_update_interval']
         self.automatic_entropy_tuning = args['automatic_entropy_tuning']
 
-        self.device = args['device']
+        self.device = as_device(args.get('device'))
         self.hidden_size = args['hidden_size']
         self.lr = args['lr']
         
@@ -180,7 +185,7 @@ class SAC_ActionGNN(object):
     def load(self, ckpt_path, evaluate=False):
         print('Loading models from {}'.format(ckpt_path))
         if ckpt_path is not None:
-            checkpoint = torch.load(ckpt_path)
+            checkpoint = torch.load(ckpt_path, map_location=self.device)
             self.policy.load_state_dict(checkpoint['policy_state_dict'])
             self.critic.load_state_dict(checkpoint['critic_state_dict'])
             self.critic_target.load_state_dict(

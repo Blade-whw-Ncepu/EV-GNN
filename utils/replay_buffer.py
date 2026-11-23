@@ -13,8 +13,13 @@ def discount_cumsum(x, gamma):
     return discount_cumsum
 
 
+# [ascend] 设备选择 + 纯张量图算子（去 CUDA / 去 PyG C++ 扩展依赖）
+from utils.device import get_device, as_device
+from utils.ascend_layers import AscendGCNConv, ascend_global_mean_pool
+
+
 class ReplayBuffer(object):
-    def __init__(self, state_dim, action_dim, max_size=int(1e6)):
+    def __init__(self, state_dim, action_dim, max_size=int(1e6), device=None):
         self.max_size = max_size
         self.ptr = 0
         self.size = 0
@@ -25,8 +30,7 @@ class ReplayBuffer(object):
         self.reward = np.zeros((max_size, 1))
         self.not_done = np.zeros((max_size, 1))
 
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu")
+        self.device = as_device(device)
 
     def add(self, state, action, next_state, reward, done):
         self.state[self.ptr] = state
@@ -51,7 +55,7 @@ class ReplayBuffer(object):
 
 
 class GNN_ReplayBuffer(object):
-    def __init__(self, action_dim, max_size=int(1e6)):
+    def __init__(self, action_dim, max_size=int(1e6), device=None):
         self.max_size = max_size
         self.ptr = 0
         self.size = 0
@@ -63,8 +67,7 @@ class GNN_ReplayBuffer(object):
         self.reward = np.zeros((max_size, 1))
         self.not_done = np.zeros((max_size, 1))
 
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu")
+        self.device = as_device(device)
 
     def add(self, state, action, next_state, reward, done):
         self.state[self.ptr] = state
@@ -200,7 +203,7 @@ class GNN_ReplayBuffer(object):
 
 
 class ActionGNN_ReplayBuffer(object):
-    def __init__(self, action_dim, max_size=int(1e6)):
+    def __init__(self, action_dim, max_size=int(1e6), device=None):
         self.max_size = max_size
         self.ptr = 0
         self.size = 0
@@ -212,8 +215,7 @@ class ActionGNN_ReplayBuffer(object):
         self.reward = np.zeros((max_size, 1))
         self.not_done = np.zeros((max_size, 1))
 
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu")
+        self.device = as_device(device)
 
     def add(self, state, action, next_state, reward, done):
         self.state[self.ptr] = state
@@ -360,7 +362,8 @@ class DT_ReplayBuffer(object):
                  max_size=int(1e6),
                  state_mean=None,
                  state_std=None,
-                 scale=1.0):
+                 scale=1.0,
+                 device=None):
         self.max_size = max_size
         self.ptr = 0
         self.size = 0
@@ -380,8 +383,7 @@ class DT_ReplayBuffer(object):
         self.rewards = np.zeros((max_size, max_episode_length))
         self.not_dones = np.zeros((max_size, max_episode_length))
 
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu")
+        self.device = as_device(device)
 
     def add(self, states, actions, rewards, dones):
         # TODO: this doesn't work for episodes that finish earlier or later than max_episode_length
@@ -393,7 +395,8 @@ class DT_ReplayBuffer(object):
         self.ptr = (self.ptr + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
 
-    def get_batch(self, batch_size=256, max_len=12, device='cuda'):
+    def get_batch(self, batch_size=256, max_len=12, device=None):
+        device = as_device(device)
 
         batch_inds = np.random.randint(0, self.size, size=batch_size)
         max_len = max_len + 1  # for the state + next state modelling

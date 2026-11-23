@@ -20,6 +20,11 @@ def weights_init_(m):
         torch.nn.init.constant_(m.bias, 0)
 
 
+# [ascend] 设备选择 + 纯张量图算子（去 CUDA / 去 PyG C++ 扩展依赖）
+from utils.device import get_device, as_device
+from utils.ascend_layers import AscendGCNConv, ascend_global_mean_pool
+
+
 class ValueNetwork(nn.Module):
     def __init__(self, num_inputs, hidden_dim):
         super(ValueNetwork, self).__init__()
@@ -53,7 +58,7 @@ class QNetwork_GNN_FX(nn.Module):
                                                        fx_node_sizes=fx_node_sizes,
                                                        GNN_hidden_dim=fx_GNN_hidden_dim,
                                                        num_heads=num_heads,
-                                                       device=torch.device('cuda'))
+                                                       device=get_device('auto'))
 
         # Q1 architecture
         self.linear1 = nn.Linear(num_inputs + num_actions, hidden_dim)
@@ -100,7 +105,7 @@ class GaussianPolicy_GNN_FX(nn.Module):
                                                        fx_node_sizes=fx_node_sizes,
                                                        GNN_hidden_dim=fx_GNN_hidden_dim,
                                                        num_heads=num_heads,
-                                                       device=torch.device('cuda'))
+                                                       device=get_device('auto'))
 
         self.linear1 = nn.Linear(num_inputs, hidden_dim)
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
@@ -295,32 +300,32 @@ class GaussianPolicy_ActionGNN(nn.Module):
         self.env_embedding = nn.Linear(fx_node_sizes['env'], feature_dim)
 
         # GCN layers to extract features with a unified edge index
-        self.gcn_conv = GCNConv(feature_dim, GNN_hidden_dim)
+        self.gcn_conv = AscendGCNConv(feature_dim, GNN_hidden_dim)
         
         if num_gcn_layers == 3:
             self.gcn_layers = nn.ModuleList(
-                [GCNConv(GNN_hidden_dim, feature_dim)])
+                [AscendGCNConv(GNN_hidden_dim, feature_dim)])
 
         elif num_gcn_layers == 4:
-            self.gcn_layers = nn.ModuleList([GCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
-                                             GCNConv(2*GNN_hidden_dim, feature_dim)])
+            self.gcn_layers = nn.ModuleList([AscendGCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
+                                             AscendGCNConv(2*GNN_hidden_dim, feature_dim)])
 
         elif num_gcn_layers == 5:
-            self.gcn_layers = nn.ModuleList([GCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
-                                             GCNConv(2*GNN_hidden_dim, GNN_hidden_dim),
-                                             GCNConv(GNN_hidden_dim, feature_dim)])
+            self.gcn_layers = nn.ModuleList([AscendGCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
+                                             AscendGCNConv(2*GNN_hidden_dim, GNN_hidden_dim),
+                                             AscendGCNConv(GNN_hidden_dim, feature_dim)])
         elif num_gcn_layers == 6:
-            self.gcn_layers = nn.ModuleList([GCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
-                                             GCNConv(2*GNN_hidden_dim, 3*GNN_hidden_dim),
-                                             GCNConv(3*GNN_hidden_dim, 2*GNN_hidden_dim),
-                                             GCNConv(2*GNN_hidden_dim, feature_dim)])
+            self.gcn_layers = nn.ModuleList([AscendGCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
+                                             AscendGCNConv(2*GNN_hidden_dim, 3*GNN_hidden_dim),
+                                             AscendGCNConv(3*GNN_hidden_dim, 2*GNN_hidden_dim),
+                                             AscendGCNConv(2*GNN_hidden_dim, feature_dim)])
         else:
             raise ValueError(
                 f"Number of Actor GCN layers not supported, use 3, 4, 5, or 6!")
         
-        self.mean_linear = GCNConv(feature_dim, 1)
+        self.mean_linear = AscendGCNConv(feature_dim, 1)
 
-        self.log_std_linear = GCNConv(feature_dim, 1)
+        self.log_std_linear = AscendGCNConv(feature_dim, 1)
 
         # action rescaling
         if action_space is None:
@@ -362,12 +367,24 @@ class GaussianPolicy_ActionGNN(nn.Module):
             total_nodes, self.feature_dim, device=self.device).float()
 
         # Apply embeddings to the corresponding segments
-        if len(state.ev_indexes) != 0:
-            embedded_x[state.ev_indexes] = self.ev_embedding(ev_features)
-            embedded_x[state.cs_indexes] = self.cs_embedding(cs_features)
-            embedded_x[state.tr_indexes] = self.tr_embedding(tr_features)
+        # [ascend] 空张量防护：reset 第 0 步只有 env 节点，ev/cs/tr 索引为空
+        ev_idx = torch.as_tensor(
+            state.ev_indexes, dtype=torch.long, device=self.device)
+        cs_idx = torch.as_tensor(
+            state.cs_indexes, dtype=torch.long, device=self.device)
+        tr_idx = torch.as_tensor(
+            state.tr_indexes, dtype=torch.long, device=self.device)
+        env_idx = torch.as_tensor(
+            state.env_indexes, dtype=torch.long, device=self.device)
 
-        embedded_x[state.env_indexes] = self.env_embedding(env_features)
+        if ev_idx.numel() > 0:
+            embedded_x[ev_idx] = self.ev_embedding(ev_features)
+        if cs_idx.numel() > 0:
+            embedded_x[cs_idx] = self.cs_embedding(cs_features)
+        if tr_idx.numel() > 0:
+            embedded_x[tr_idx] = self.tr_embedding(tr_features)
+        if env_idx.numel() > 0:
+            embedded_x[env_idx] = self.env_embedding(env_features)
 
         embedded_x = embedded_x.reshape(-1, self.feature_dim)
         embedded_x = F.relu(embedded_x)
@@ -486,25 +503,25 @@ class Critic_ActionGNN(nn.Module):
         self.env_embedding = nn.Linear(fx_node_sizes['env'], feature_dim)
 
         # GCN layers to extract features with a unified edge index
-        self.gcn_conv = GCNConv(feature_dim+1, GNN_hidden_dim)
+        self.gcn_conv = AscendGCNConv(feature_dim+1, GNN_hidden_dim)
         
         if num_gcn_layers == 3:
             self.gcn_layers = nn.ModuleList(
-                [GCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
-                    GCNConv(2*GNN_hidden_dim, 3*GNN_hidden_dim)])
+                [AscendGCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
+                    AscendGCNConv(2*GNN_hidden_dim, 3*GNN_hidden_dim)])
             mlp_layer_features = 3*GNN_hidden_dim
             
         elif num_gcn_layers == 4:
-            self.gcn_layers = nn.ModuleList([GCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
-                                             GCNConv(2*GNN_hidden_dim,3*GNN_hidden_dim),
-                                                GCNConv(3*GNN_hidden_dim, 2*GNN_hidden_dim)])            
+            self.gcn_layers = nn.ModuleList([AscendGCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
+                                             AscendGCNConv(2*GNN_hidden_dim,3*GNN_hidden_dim),
+                                                AscendGCNConv(3*GNN_hidden_dim, 2*GNN_hidden_dim)])            
             mlp_layer_features = 2*GNN_hidden_dim
             
         elif num_gcn_layers == 5:
-            self.gcn_layers = nn.ModuleList([GCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
-                                                GCNConv(2*GNN_hidden_dim, 3*GNN_hidden_dim),
-                                                GCNConv(3*GNN_hidden_dim, 4*GNN_hidden_dim),
-                                                GCNConv(4*GNN_hidden_dim, 3*GNN_hidden_dim)
+            self.gcn_layers = nn.ModuleList([AscendGCNConv(GNN_hidden_dim, 2*GNN_hidden_dim),
+                                                AscendGCNConv(2*GNN_hidden_dim, 3*GNN_hidden_dim),
+                                                AscendGCNConv(3*GNN_hidden_dim, 4*GNN_hidden_dim),
+                                                AscendGCNConv(4*GNN_hidden_dim, 3*GNN_hidden_dim)
                                                 ])
             mlp_layer_features = 3*GNN_hidden_dim
             
@@ -536,12 +553,24 @@ class Critic_ActionGNN(nn.Module):
                                  device=self.device).float()
 
         # Apply embeddings to the corresponding segments
-        if len(state.ev_indexes) != 0:
-            embedded_x[state.ev_indexes] = self.ev_embedding(ev_features)
-            embedded_x[state.cs_indexes] = self.cs_embedding(cs_features)
-            embedded_x[state.tr_indexes] = self.tr_embedding(tr_features)
+        # [ascend] 空张量防护：reset 第 0 步只有 env 节点，ev/cs/tr 索引为空
+        ev_idx = torch.as_tensor(
+            state.ev_indexes, dtype=torch.long, device=self.device)
+        cs_idx = torch.as_tensor(
+            state.cs_indexes, dtype=torch.long, device=self.device)
+        tr_idx = torch.as_tensor(
+            state.tr_indexes, dtype=torch.long, device=self.device)
+        env_idx = torch.as_tensor(
+            state.env_indexes, dtype=torch.long, device=self.device)
 
-        embedded_x[state.env_indexes] = self.env_embedding(env_features)
+        if ev_idx.numel() > 0:
+            embedded_x[ev_idx] = self.ev_embedding(ev_features)
+        if cs_idx.numel() > 0:
+            embedded_x[cs_idx] = self.cs_embedding(cs_features)
+        if tr_idx.numel() > 0:
+            embedded_x[tr_idx] = self.tr_embedding(tr_features)
+        if env_idx.numel() > 0:
+            embedded_x[env_idx] = self.env_embedding(env_features)
 
         embedded_x = embedded_x.reshape(-1, self.feature_dim)
         embedded_x = F.relu(embedded_x)
@@ -568,7 +597,7 @@ class Critic_ActionGNN(nn.Module):
             counter += sample_node_length[i]
 
         # Graph Embedding
-        pooled_embedding = global_mean_pool(x, batch=batch)
+        pooled_embedding = ascend_global_mean_pool(x, batch=batch)
 
         # Apply MLP
         x = F.relu(self.l1(pooled_embedding))

@@ -10,10 +10,15 @@ from torch_geometric.nn import GCNConv, GlobalAttention, GATConv
 import torch_geometric.transforms as T
 
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 # Implementation of Twin Delayed Deep Deterministic Policy Gradients (TD3)
 # Paper: https://arxiv.org/abs/1802.09477
+
+
+# [ascend] 设备选择 + 纯张量图算子（去 CUDA / 去 PyG C++ 扩展依赖）
+from utils.device import get_device, as_device
+from utils.ascend_layers import AscendGCNConv, ascend_global_mean_pool
 
 
 class Actor(nn.Module):
@@ -83,13 +88,15 @@ class TD3(object):
             **kwargs
     ):
 
+        self.device = as_device(kwargs.get("device", "auto"))
+
         self.actor = Actor(state_dim, action_dim, max_action,
-                           mlp_hidden_dim).to(device)
+                           mlp_hidden_dim).to(self.device)
         self.actor_target = copy.deepcopy(self.actor)
         self.actor_optimizer = torch.optim.Adam(
             self.actor.parameters(), lr=3e-4)
 
-        self.critic = Critic(state_dim, action_dim, mlp_hidden_dim).to(device)
+        self.critic = Critic(state_dim, action_dim, mlp_hidden_dim).to(self.device)
         self.critic_target = copy.deepcopy(self.critic)
         self.critic_optimizer = torch.optim.Adam(
             self.critic.parameters(), lr=3e-4)
@@ -104,7 +111,7 @@ class TD3(object):
         self.total_it = 0
 
     def select_action(self, state, **kwargs):
-        state = torch.FloatTensor(state.reshape(1, -1)).to(device)
+        state = torch.FloatTensor(state.reshape(1, -1)).to(self.device)
         return self.actor(state).cpu().data.numpy().flatten()
 
     def train(self, replay_buffer, batch_size=256):
@@ -174,12 +181,12 @@ class TD3(object):
                    filename + "_actor_optimizer")
 
     def load(self, filename):
-        self.critic.load_state_dict(torch.load(filename + "_critic"))
+        self.critic.load_state_dict(torch.load(filename + "_critic", map_location=self.device))
         self.critic_optimizer.load_state_dict(
-            torch.load(filename + "_critic_optimizer"))
+            torch.load(filename + "_critic_optimizer", map_location=self.device))
         self.critic_target = copy.deepcopy(self.critic)
 
-        self.actor.load_state_dict(torch.load(filename + "_actor"))
+        self.actor.load_state_dict(torch.load(filename + "_actor", map_location=self.device))
         self.actor_optimizer.load_state_dict(
-            torch.load(filename + "_actor_optimizer"))
+            torch.load(filename + "_actor_optimizer", map_location=self.device))
         self.actor_target = copy.deepcopy(self.actor)

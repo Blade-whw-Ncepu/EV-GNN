@@ -181,3 +181,7 @@ slurm_logs/
 *.out
 config_files/EV2Gym_scale_testing.yaml
 main_performance Comparison.py
+
+# [ascend] 本地训练/导出产物
+*.pt
+*.pth

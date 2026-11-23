@@ -125,3 +125,8 @@ ev:
   charge_efficiency: 1 # 0-1 (0% - 100%)
   discharge_efficiency: 1 # 0-1 (0% - 100%)
   min_time_of_stay: 120 # in minutes
+
+# [local patch] ev2gym 2.0 required keys (EV-GNN 的 yaml 是 1.0.0 版本)
+random_hour: False
+simulate_grid: False
+power_setpoint_enabled: True
