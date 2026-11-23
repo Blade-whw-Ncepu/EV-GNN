@@ -22,7 +22,7 @@ EV-GNN/
 ```bash
 # 方案 A：直接 clone 本分支（推荐）
 cd ~/work
-git clone -b feat/ascend-npu <你的 EV-GNN 仓库地址> EV-GNN
+git clone -b feat/ascend-npu https://gitee.com/Blade-whw-Ncepu/ev-gnn.git EV-GNN
 cd EV-GNN && bash setup_ascend.sh          # 脚本就在仓库根目录
 
 # 方案 B：脚本在别处 / 只做环境自检 / 走内网源
