@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智充图驭 — EV 智能充电调度驾驶舱</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<style>
+  :root{
+    --bg:#0a0e1a; --panel:#111726; --panel2:#0d1320; --border:#1f2a3d;
+    --cyan:#00d4ff; --yellow:#ffb800; --red:#ff4d4f; --green:#52c41a; --purple:#8b5cf6;
+    --text:#e6edf3; --muted:#7d8590; --font:'JetBrains Mono','Cascadia Code','Consolas',monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;
+    background-image:radial-gradient(circle at 20% 0%,rgba(0,212,255,.06),transparent 40%),
+                     radial-gradient(circle at 80% 100%,rgba(139,92,246,.05),transparent 40%);}
+  header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;
+    border-bottom:1px solid var(--border);background:linear-gradient(180deg,#0d1320,#0a0e1a);}
+  header h1{font-size:18px;font-weight:600;letter-spacing:1px}
+  header h1 span{color:var(--cyan)}
+  .badges{display:flex;gap:10px;align-items:center}
+  .badge{padding:4px 10px;border-radius:4px;font-size:12px;border:1px solid var(--border);background:var(--panel)}
+  .badge.npu{color:var(--green);border-color:var(--green)}
+  .badge.cpu{color:var(--muted)}
+  .badge.demo{color:var(--yellow);border-color:var(--yellow)}
+  .badge.real{color:var(--cyan);border-color:var(--cyan)}
+  main{padding:18px 24px;display:grid;gap:16px}
+  .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  .kpi{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px;position:relative;overflow:hidden}
+  .kpi::before{content:'';position:absolute;left:0;top:0;width:3px;height:100%;background:var(--cyan)}
+  .kpi:nth-child(2)::before{background:var(--yellow)}
+  .kpi:nth-child(3)::before{background:var(--red)}
+  .kpi:nth-child(4)::before{background:var(--green)}
+  .kpi .label{font-size:12px;color:var(--muted);margin-bottom:8px}
+  .kpi .value{font-size:28px;font-weight:700;letter-spacing:.5px}
+  .kpi .unit{font-size:13px;color:var(--muted);margin-left:4px}
+  .kpi .sub{font-size:11px;color:var(--muted);margin-top:6px}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px}
+  .panel h2{font-size:14px;color:var(--cyan);margin-bottom:12px;letter-spacing:1px;border-left:3px solid var(--cyan);padding-left:8px}
+  .mid-row{display:grid;grid-template-columns:1fr 2fr;gap:16px}
+  .chart{width:100%;height:340px}
+  .bottom-row{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:16px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)}
+  th{color:var(--cyan);font-weight:600;font-size:12px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  tr.gnn td{color:var(--green)}
+  .log{max-height:300px;overflow-y:auto;font-size:12px}
+  .log .line{padding:5px 8px;border-bottom:1px dashed var(--border);display:flex;gap:10px}
+  .log .line .step{color:var(--cyan);width:40px;flex-shrink:0}
+  .log .line .cs{color:var(--yellow);width:60px;flex-shrink:0}
+  .log .line .kw{width:80px;flex-shrink:0;font-variant-numeric:tabular-nums}
+  .log .line .kw.neg{color:var(--red)}
+  .log .line .kw.pos{color:var(--green)}
+  .diag textarea{width:100%;height:80px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px;font-family:var(--font);resize:vertical}
+  .diag button{margin-top:8px;padding:6px 16px;background:var(--cyan);color:#000;border:none;border-radius:4px;cursor:pointer;font-family:var(--font);font-weight:600}
+  .diag button:hover{opacity:.85}
+  .diag .out{margin-top:10px;font-size:12px;color:var(--muted);min-height:60px;white-space:pre-wrap}
+  .diag .out b{color:var(--yellow)}
+  footer{text-align:center;padding:14px;color:var(--muted);font-size:11px;border-top:1px solid var(--border);margin-top:8px}
+  .err{color:var(--red);font-size:12px;padding:8px}
+  @media(max-width:1100px){.kpi-row{grid-template-columns:repeat(2,1fr)}.mid-row,.bottom-row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>智充图驭 <span>·</span> 大规模电动汽车智能充电调度云平台</h1>
+  <div class="badges">
+    <span class="badge" id="badge-device">设备: --</span>
+    <span class="badge" id="badge-mode">数据: --</span>
+    <span class="badge" id="badge-time">--</span>
+  </div>
+</header>
+<main>
+  <div class="kpi-row">
+    <div class="kpi"><div class="label">在网车辆数</div><div class="value" id="kpi-evs">--</div><div class="sub" id="kpi-evs-sub">实时接入 EV</div></div>
+    <div class="kpi"><div class="label">总充电功率</div><div class="value" id="kpi-power">--<span class="unit">MW</span></div><div class="sub" id="kpi-power-sub">当前调度周期</div></div>
+    <div class="kpi"><div class="label">配变越限率</div><div class="value" id="kpi-over">--<span class="unit">%</span></div><div class="sub" id="kpi-over-sub">3 台配变</div></div>
+    <div class="kpi"><div class="label">电价峰谷套利收益</div><div class="value" id="kpi-arb">--<span class="unit">元</span></div><div class="sub" id="kpi-arb-sub">相对无序充电</div></div>
+  </div>
+
+  <div class="mid-row">
+    <div class="panel">
+      <h2>EV2Gym 异构图节点关系</h2>
+      <div id="graph" class="chart"></div>
+    </div>
+    <div class="panel">
+      <h2>112 步充放电功率 / 电价 / 配变负载对比</h2>
+      <div id="series" class="chart"></div>
+    </div>
+  </div>
+
+  <div class="bottom-row">
+    <div class="panel">
+      <h2>三种调度策略成本 / 违约率对比</h2>
+      <table id="strategy-table">
+        <thead><tr><th>策略</th><th>总成本(元)</th><th>违约率</th><th>服务EV</th><th>满意度</th><th>跟踪误差</th><th>配变越限</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="panel">
+      <h2>实时调度动作日志</h2>
+      <div class="log" id="action-log"></div>
+    </div>
+    <div class="panel diag">
+      <h2>AI 调度诊断摘要</h2>
+      <textarea id="diag-input" placeholder="输入关注点，例如：当前配变#2 越限，请给出削峰建议..."></textarea>
+      <button onclick="runDiagnosis()">请求诊断</button>
+      <div class="out" id="diag-out">待接入华为云 MaaS 大模型推理服务。点击按钮可获取占位响应。</div>
+    </div>
+  </div>
+</main>
+<footer>智充图驭 · EV-GNN × EV2Gym × Ascend NPU · 华为云码道(CodeArts)代码智能体生成</footer>
+
+<script>
+const API = '/api';
+const fmt = (v,d=2)=> (v==null||isNaN(v))?'--':Number(v).toFixed(d);
+const $ = id => document.getElementById(id);
+
+async function getJSON(url){
+  const r = await fetch(url);
+  if(!r.ok) throw new Error(url+' '+r.status);
+  return r.json();
+}
+
+function setBadges(device, demoMode, ts){
+  const db = $('badge-device');
+  db.textContent = '设备: ' + (device.label || device.type);
+  db.className = 'badge ' + (device.npu_available ? 'npu' : 'cpu');
+  const mb = $('badge-mode');
+  mb.textContent = '数据: ' + (demoMode ? '演示' : '实测');
+  mb.className = 'badge ' + (demoMode ? 'demo' : 'real');
+  $('badge-time').textContent = ts ? new Date(ts).toLocaleString('zh-CN') : '--';
+}
+
+function renderKPI(s){
+  $('kpi-evs').textContent = s.online_evs;
+  $('kpi-power').innerHTML = fmt(s.total_power_mw,3) + '<span class="unit">MW</span>';
+  $('kpi-over').innerHTML = fmt(s.transformer_overload_rate*100,2) + '<span class="unit">%</span>';
+  $('kpi-arb').innerHTML = fmt(s.arbitrage_profit,0) + '<span class="unit">元</span>';
+  $('kpi-power-sub').textContent = '电网负荷 ' + fmt(s.grid_load_mw,3) + ' MW';
+}
+
+function renderTable(strategies){
+  const tb = $('strategy-table').querySelector('tbody');
+  tb.innerHTML = '';
+  strategies.forEach(s=>{
+    const tr = document.createElement('tr');
+    if(s.is_gnn) tr.className = 'gnn';
+    tr.innerHTML = `<td>${s.label}</td>
+      <td class="num">${fmt(s.total_cost,0)}</td>
+      <td class="num">${fmt(s.violation_rate*100,2)}%</td>
+      <td class="num">${s.ev_served}</td>
+      <td class="num">${fmt(s.user_satisfaction,3)}</td>
+      <td class="num">${fmt(s.tracking_error,3)}</td>
+      <td class="num">${fmt(s.transformer_overload,3)}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+function renderGraph(graph){
+  const el = $('graph');
+  const chart = echarts.init(el, null, {renderer:'canvas'});
+  const colorMap = {env:'#00d4ff', transformer:'#ffb800', cs:'#52c41a', ev:'#8b5cf6'};
+  const sizeMap = {env:36, transformer:26, cs:16, ev:10};
+  const nodes = graph.nodes.map(n=>({
+    id:n.id, name:n.label, category:n.kind,
+    symbolSize:sizeMap[n.kind]||14,
+    itemStyle:{color:colorMap[n.kind]||'#7d8590', borderColor:'#0a0e1a', borderWidth:1},
+    label:{show:n.kind!=='ev', fontSize:10, color:'#e6edf3', position:'right'},
+  }));
+  const categories = Object.keys(colorMap).map(k=>({name:k}));
+  const edges = graph.edges.map(e=>({
+    source:e.source, target:e.target,
+    lineStyle:{color:e.kind==='env-tr'?'#00d4ff':e.kind==='tr-cs'?'#ffb800':'#52c41a', opacity:.5, width:1}
+  }));
+  chart.setOption({
+    tooltip:{trigger:'item', backgroundColor:'#111726', borderColor:'#1f2a3d', textStyle:{color:'#e6edf3'}},
+    legend:{data:['env','transformer','cs','ev'], textStyle:{color:'#7d8590', fontSize:10}, top:0, left:'center'},
+    series:[{
+      type:'graph', layout:'force', roam:true, draggable:true,
+      categories, nodes, edges,
+      force:{repulsion:120, edgeLength:50, gravity:.08},
+      emphasis:{focus:'adjacency', lineStyle:{width:2, opacity:.9}},
+    }],
+    backgroundColor:'transparent',
+  });
+  window.addEventListener('resize',()=>chart.resize());
+}
+
+function renderSeries(ts){
+  const el = $('series');
+  const chart = echarts.init(el, null, {renderer:'canvas'});
+  const steps = ts.steps;
+  const hours = steps.map(i => ((5 + i*0.25) % 24).toFixed(2));
+  const mk = (name, data, color, yAxis=1) => ({name, type:'line', data, smooth:true, symbol:'none',
+    lineStyle:{color, width:1.6}, yAxisIndex:yAxis,
+    emphasis:{focus:'series'}, itemStyle:{color}});
+  chart.setOption({
+    tooltip:{trigger:'axis', backgroundColor:'#111726', borderColor:'#1f2a3d', textStyle:{color:'#e6edf3'}},
+    legend:{data:['无序充电','规则控制','EV-GNN','电价','配变负载(GNN)'], textStyle:{color:'#7d8590', fontSize:10}, top:0, type:'scroll'},
+    grid:{left:50, right:60, top:30, bottom:30},
+    xAxis:{type:'category', data:hours, name:'时刻(h)', nameTextStyle:{color:'#7d8590'},
+      axisLine:{lineStyle:{color:'#1f2a3d'}}, axisLabel:{color:'#7d8590', fontSize:10}},
+    yAxis:[
+      {type:'value', name:'功率MW', nameTextStyle:{color:'#7d8590'},
+        axisLine:{lineStyle:{color:'#1f2a3d'}}, axisLabel:{color:'#7d8590', fontSize:10},
+        splitLine:{lineStyle:{color:'#1f2a3d', opacity:.3}}},
+      {type:'value', name:'电价/负载率', nameTextStyle:{color:'#7d8590'},
+        axisLine:{lineStyle:{color:'#1f2a3d'}}, axisLabel:{color:'#7d8590', fontSize:10},
+        splitLine:{show:false}},
+    ],
+    series:[
+      mk('无序充电', ts.power.unordered, '#ff4d4f', 0),
+      mk('规则控制', ts.power.rule, '#ffb800', 0),
+      mk('EV-GNN', ts.power.gnn, '#00d4ff', 0),
+      mk('电价', ts.price, '#8b5cf6', 1),
+      mk('配变负载(GNN)', ts.transformer_load.gnn, '#52c41a', 1),
+    ],
+    backgroundColor:'transparent',
+  });
+  window.addEventListener('resize',()=>chart.resize());
+}
+
+function renderActions(a){
+  const box = $('action-log');
+  box.innerHTML = '';
+  a.actions.forEach(act=>{
+    const line = document.createElement('div');
+    line.className = 'line';
+    const kwCls = act.action_kw < 0 ? 'neg' : 'pos';
+    line.innerHTML = `<span class="step">T${act.step}</span>
+      <span class="cs">CS#${act.cs_id}</span>
+      <span class="kw ${kwCls}">${act.action_kw>0?'+':''}${fmt(act.action_kw,1)}kW</span>
+      <span>${act.reason}</span>`;
+    box.appendChild(line);
+  });
+}
+
+async function runDiagnosis(){
+  const text = $('diag-input').value || '';
+  const out = $('diag-out');
+  out.innerHTML = '<b>请求中...</b>';
+  try{
+    const r = await fetch(API+'/dashboard/diagnosis', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({text})
+    });
+    const d = await r.json();
+    out.innerHTML = `<b>摘要:</b> ${d.summary}\n<b>风险点:</b>\n  - ${d.risk_points.join('\n  - ')}\n<b>建议:</b> ${d.suggestion}\n<b>后端:</b> ${d.backend} @ ${new Date(d.ts).toLocaleTimeString('zh-CN')}`;
+  }catch(e){ out.innerHTML = '<b style="color:#ff4d4f">错误:</b> ' + e.message; }
+}
+
+async function init(){
+  try{
+    const [sum, ts, act] = await Promise.all([
+      getJSON(API+'/dashboard/summary'),
+      getJSON(API+'/dashboard/timeseries'),
+      getJSON(API+'/dashboard/actions'),
+    ]);
+    setBadges(sum.device, sum.demo_mode, sum.ts);
+    renderKPI(sum);
+    renderTable(sum.strategies);
+    renderGraph(ts.graph);
+    renderSeries(ts);
+    renderActions(act);
+  }catch(e){
+    document.querySelector('main').insertAdjacentHTML('afterbegin',
+      `<div class="err">加载失败: ${e.message}（请确认后端已启动）</div>`);
+  }
+}
+init();
+setInterval(()=>init().catch(()=>{}), 30000);
+</script>
+</body>
+</html>
