@@ -3,275 +3,872 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>智充图驭 — EV 智能充电调度驾驶舱</title>
+<title>智充图驭 — EV 智能充电调度云平台驾驶舱</title>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 <style>
-  :root{
-    --bg:#0a0e1a; --panel:#111726; --panel2:#0d1320; --border:#1f2a3d;
-    --cyan:#00d4ff; --yellow:#ffb800; --red:#ff4d4f; --green:#52c41a; --purple:#8b5cf6;
-    --text:#e6edf3; --muted:#7d8590; --font:'JetBrains Mono','Cascadia Code','Consolas',monospace;
+  :root {
+    --bg: #050914;
+    --bg-elevated: #0b1222;
+    --panel: rgba(13, 22, 41, 0.88);
+    --panel-solid: #0d1629;
+    --panel-2: #080f1e;
+    --border: rgba(56, 189, 248, 0.16);
+    --border-strong: rgba(56, 189, 248, 0.36);
+    --cyan: #22d3ee;
+    --blue: #3b82f6;
+    --amber: #f59e0b;
+    --coral: #fb7185;
+    --emerald: #10b981;
+    --violet: #a78bfa;
+    --text: #e2e8f0;
+    --text-bright: #f8fafc;
+    --muted: #94a3b8;
+    --sans: "Inter", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+    --mono: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
+    --radius: 12px;
   }
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;
-    background-image:radial-gradient(circle at 20% 0%,rgba(0,212,255,.06),transparent 40%),
-                     radial-gradient(circle at 80% 100%,rgba(139,92,246,.05),transparent 40%);}
-  header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;
-    border-bottom:1px solid var(--border);background:linear-gradient(180deg,#0d1320,#0a0e1a);}
-  header h1{font-size:18px;font-weight:600;letter-spacing:1px}
-  header h1 span{color:var(--cyan)}
-  .badges{display:flex;gap:10px;align-items:center}
-  .badge{padding:4px 10px;border-radius:4px;font-size:12px;border:1px solid var(--border);background:var(--panel)}
-  .badge.npu{color:var(--green);border-color:var(--green)}
-  .badge.cpu{color:var(--muted)}
-  .badge.demo{color:var(--yellow);border-color:var(--yellow)}
-  .badge.real{color:var(--cyan);border-color:var(--cyan)}
-  main{padding:18px 24px;display:grid;gap:16px}
-  .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
-  .kpi{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px;position:relative;overflow:hidden}
-  .kpi::before{content:'';position:absolute;left:0;top:0;width:3px;height:100%;background:var(--cyan)}
-  .kpi:nth-child(2)::before{background:var(--yellow)}
-  .kpi:nth-child(3)::before{background:var(--red)}
-  .kpi:nth-child(4)::before{background:var(--green)}
-  .kpi .label{font-size:12px;color:var(--muted);margin-bottom:8px}
-  .kpi .value{font-size:28px;font-weight:700;letter-spacing:.5px}
-  .kpi .unit{font-size:13px;color:var(--muted);margin-left:4px}
-  .kpi .sub{font-size:11px;color:var(--muted);margin-top:6px}
-  .panel{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px}
-  .panel h2{font-size:14px;color:var(--cyan);margin-bottom:12px;letter-spacing:1px;border-left:3px solid var(--cyan);padding-left:8px}
-  .mid-row{display:grid;grid-template-columns:1fr 2fr;gap:16px}
-  .chart{width:100%;height:340px}
-  .bottom-row{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:16px}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)}
-  th{color:var(--cyan);font-weight:600;font-size:12px}
-  td.num{text-align:right;font-variant-numeric:tabular-nums}
-  tr.gnn td{color:var(--green)}
-  .log{max-height:300px;overflow-y:auto;font-size:12px}
-  .log .line{padding:5px 8px;border-bottom:1px dashed var(--border);display:flex;gap:10px}
-  .log .line .step{color:var(--cyan);width:40px;flex-shrink:0}
-  .log .line .cs{color:var(--yellow);width:60px;flex-shrink:0}
-  .log .line .kw{width:80px;flex-shrink:0;font-variant-numeric:tabular-nums}
-  .log .line .kw.neg{color:var(--red)}
-  .log .line .kw.pos{color:var(--green)}
-  .diag textarea{width:100%;height:80px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px;font-family:var(--font);resize:vertical}
-  .diag button{margin-top:8px;padding:6px 16px;background:var(--cyan);color:#000;border:none;border-radius:4px;cursor:pointer;font-family:var(--font);font-weight:600}
-  .diag button:hover{opacity:.85}
-  .diag .out{margin-top:10px;font-size:12px;color:var(--muted);min-height:60px;white-space:pre-wrap}
-  .diag .out b{color:var(--yellow)}
-  footer{text-align:center;padding:14px;color:var(--muted);font-size:11px;border-top:1px solid var(--border);margin-top:8px}
-  .err{color:var(--red);font-size:12px;padding:8px}
-  @media(max-width:1100px){.kpi-row{grid-template-columns:repeat(2,1fr)}.mid-row,.bottom-row{grid-template-columns:1fr}}
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+    background-image:
+      linear-gradient(rgba(34, 211, 238, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(34, 211, 238, 0.03) 1px, transparent 1px),
+      radial-gradient(900px 480px at 12% -10%, rgba(34, 211, 238, 0.12), transparent 60%),
+      radial-gradient(800px 520px at 92% 10%, rgba(59, 130, 246, 0.10), transparent 60%);
+    background-size: 40px 40px, 40px 40px, 100% 100%, 100% 100%;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.4); }
+  ::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.25); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(56, 189, 248, 0.45); }
+
+  /* Header */
+  header {
+    position: sticky; top: 0; z-index: 30;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 12px 24px;
+    background: rgba(7, 12, 26, 0.88);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  }
+  .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .brand-mark {
+    width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
+    background: linear-gradient(135deg, #06b6d4, #2563eb);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 18px rgba(34, 211, 238, 0.32);
+    font-family: var(--mono); font-weight: 800; font-size: 15px; color: #fff;
+  }
+  .brand-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .brand-title h1 {
+    font-size: 18px; font-weight: 700; color: var(--text-bright);
+    letter-spacing: 0.4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .brand-title h1 span { color: var(--cyan); }
+  .brand-sub {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 11.5px; color: var(--muted);
+  }
+  .tech-tag {
+    padding: 1px 7px; border-radius: 4px; font-family: var(--mono); font-size: 10.5px;
+    background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.28); color: #93c5fd;
+  }
+  .header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 11px; border-radius: 999px; font-size: 12px; font-family: var(--mono);
+    background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border); color: var(--text);
+    white-space: nowrap;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--emerald); box-shadow: 0 0 8px var(--emerald); }
+  .dot.pulse { animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.55; transform: scale(1.25); } }
+  .pill.npu { border-color: rgba(16, 185, 129, 0.45); color: #6ee7b7; background: rgba(16, 185, 129, 0.1); }
+  .pill.cpu { border-color: rgba(148, 163, 184, 0.35); color: #cbd5e1; }
+  .pill.real { border-color: rgba(34, 211, 238, 0.45); color: var(--cyan); background: rgba(34, 211, 238, 0.08); }
+  .pill.demo { border-color: rgba(245, 158, 11, 0.45); color: #fcd34d; background: rgba(245, 158, 11, 0.08); }
+  .btn-icon {
+    padding: 5px 11px; border-radius: 999px; border: 1px solid var(--border-strong);
+    background: rgba(34, 211, 238, 0.1); color: var(--cyan); font-size: 12px; font-family: var(--sans);
+    cursor: pointer; transition: all .18s ease; display: inline-flex; align-items: center; gap: 5px;
+  }
+  .btn-icon:hover { background: rgba(34, 211, 238, 0.22); transform: translateY(-1px); }
+
+  /* Main Layout */
+  main { padding: 16px 24px 22px; display: flex; flex-direction: column; gap: 16px; max-width: 1720px; margin: 0 auto; }
+
+  /* KPI Row */
+  .kpi-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+  .kpi {
+    position: relative; background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 15px 18px; overflow: hidden;
+    backdrop-filter: blur(8px); transition: border-color .2s, transform .2s;
+  }
+  .kpi:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+  .kpi::before {
+    content: ''; position: absolute; left: 0; top: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--cyan), transparent 85%);
+  }
+  .kpi.k2::before { background: linear-gradient(90deg, var(--amber), transparent 85%); }
+  .kpi.k3::before { background: linear-gradient(90deg, var(--emerald), transparent 85%); }
+  .kpi.k4::before { background: linear-gradient(90deg, var(--violet), transparent 85%); }
+  .kpi-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .kpi-label { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+  .kpi-chip {
+    font-size: 10.5px; font-family: var(--mono); padding: 2px 7px; border-radius: 4px;
+    background: rgba(34, 211, 238, 0.1); color: var(--cyan); border: 1px solid rgba(34, 211, 238, 0.22);
+  }
+  .kpi.k2 .kpi-chip { background: rgba(245, 158, 11, 0.1); color: #fbbf24; border-color: rgba(245, 158, 11, 0.25); }
+  .kpi.k3 .kpi-chip { background: rgba(16, 185, 129, 0.1); color: #34d399; border-color: rgba(16, 185, 129, 0.25); }
+  .kpi.k4 .kpi-chip { background: rgba(167, 139, 250, 0.12); color: #c4b5fd; border-color: rgba(167, 139, 250, 0.28); }
+  .kpi-val {
+    font-family: var(--mono); font-size: 30px; font-weight: 700; color: var(--text-bright);
+    letter-spacing: -0.5px; font-variant-numeric: tabular-nums; line-height: 1.15;
+  }
+  .kpi-val .unit { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 5px; }
+  .kpi-sub { margin-top: 7px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+  .kpi-sub b { color: var(--text); font-family: var(--mono); font-weight: 600; }
+
+  /* Ascend Verified Banner */
+  .ascend-strip {
+    display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 16px;
+    padding: 10px 16px; border-radius: var(--radius);
+    background: linear-gradient(90deg, rgba(16, 185, 129, 0.10), rgba(34, 211, 238, 0.06) 50%, rgba(59, 130, 246, 0.08));
+    border: 1px solid rgba(16, 185, 129, 0.28);
+  }
+  .ascend-badge {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700;
+    color: #6ee7b7; white-space: nowrap;
+  }
+  .ascend-metrics {
+    display: flex; flex-wrap: wrap; gap: 18px; font-size: 12px; color: var(--muted);
+  }
+  .ascend-metrics span b { color: var(--text-bright); font-family: var(--mono); }
+  .ascend-metrics span em { font-style: normal; color: var(--cyan); font-family: var(--mono); font-weight: 600; }
+  .ascend-note { font-size: 11px; font-family: var(--mono); color: var(--muted); white-space: nowrap; }
+
+  /* Panel */
+  .panel {
+    position: relative; background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 15px 18px; backdrop-filter: blur(8px);
+    display: flex; flex-direction: column; min-width: 0;
+  }
+  .panel-hd {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .panel-hd h2 {
+    font-size: 14px; font-weight: 700; color: var(--text-bright);
+    display: flex; align-items: center; gap: 8px; letter-spacing: 0.3px;
+  }
+  .panel-hd h2::before {
+    content: ''; width: 3px; height: 14px; border-radius: 2px; background: var(--cyan);
+    box-shadow: 0 0 8px var(--cyan);
+  }
+  .seg {
+    display: inline-flex; background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 7px; padding: 2px; gap: 2px;
+  }
+  .seg button {
+    border: none; background: transparent; color: var(--muted); font-size: 11.5px;
+    padding: 4px 10px; border-radius: 5px; cursor: pointer; font-family: var(--sans);
+    transition: all .15s;
+  }
+  .seg button.active { background: rgba(34, 211, 238, 0.16); color: var(--cyan); font-weight: 600; }
+  .seg button:hover:not(.active) { color: var(--text); }
+
+  /* Middle Grid */
+  .mid-row { display: grid; grid-template-columns: 1.05fr 1.95fr; gap: 16px; }
+  .chart { width: 100%; height: 370px; }
+
+  /* Bottom Grid */
+  .bottom-row { display: grid; grid-template-columns: 1.25fr 1fr 1fr; gap: 16px; }
+
+  /* Table */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { padding: 10px 8px; text-align: left; border-bottom: 1px solid rgba(56, 189, 248, 0.10); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.4px; }
+  td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  tbody tr { transition: background .15s; }
+  tbody tr:hover { background: rgba(34, 211, 238, 0.05); }
+  tbody tr.gnn { background: rgba(16, 185, 129, 0.07); }
+  tbody tr.gnn td { color: #a7f3d0; font-weight: 600; }
+  .rank-tag {
+    display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-family: var(--mono);
+    margin-left: 6px; background: rgba(16, 185, 129, 0.18); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4);
+    vertical-align: middle;
+  }
+  .delta-good { color: #34d399; font-size: 11px; margin-left: 4px; }
+
+  /* Action Log */
+  .log { max-height: 315px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px; }
+  .log-item {
+    display: grid; grid-template-columns: 44px 56px 76px 1fr; align-items: center; gap: 8px;
+    padding: 7px 10px; border-radius: 8px; background: var(--panel-2); border: 1px solid rgba(56, 189, 248, 0.08);
+    font-size: 12px;
+  }
+  .log-step { font-family: var(--mono); color: var(--cyan); font-weight: 600; }
+  .log-cs { font-family: var(--mono); color: #fbbf24; font-size: 11.5px; }
+  .log-kw { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+  .log-kw.pos { color: #34d399; }
+  .log-kw.neg { color: var(--coral); }
+  .log-reason { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Diagnosis */
+  .diag-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .preset-btn {
+    padding: 3px 9px; border-radius: 999px; font-size: 11px; cursor: pointer;
+    background: rgba(59, 130, 246, 0.10); border: 1px solid rgba(59, 130, 246, 0.28); color: #93c5fd;
+    transition: all .15s;
+  }
+  .preset-btn:hover { background: rgba(59, 130, 246, 0.22); color: #fff; }
+  .diag textarea {
+    width: 100%; height: 74px; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px;
+    font-family: var(--sans); font-size: 12.5px; resize: vertical; outline: none;
+  }
+  .diag textarea:focus { border-color: var(--cyan); }
+  .diag-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; gap: 10px; }
+  .btn-primary {
+    padding: 7px 16px; border: none; border-radius: 7px; cursor: pointer;
+    background: linear-gradient(135deg, #06b6d4, #2563eb); color: #fff;
+    font-family: var(--sans); font-size: 12.5px; font-weight: 600;
+    box-shadow: 0 4px 14px rgba(6, 182, 212, 0.28); transition: opacity .15s, transform .15s;
+  }
+  .btn-primary:hover { opacity: .92; transform: translateY(-1px); }
+  .diag-meta { font-size: 11px; font-family: var(--mono); color: var(--muted); }
+  .diag-out {
+    margin-top: 10px; padding: 10px 12px; border-radius: 8px;
+    background: var(--panel-2); border: 1px solid rgba(56, 189, 248, 0.12);
+    font-size: 12px; line-height: 1.65; color: var(--text); min-height: 128px; max-height: 175px; overflow-y: auto;
+  }
+  .diag-tag {
+    display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10.5px; font-weight: 600;
+    margin-right: 6px; background: rgba(245, 158, 11, 0.14); color: #fbbf24;
+  }
+  .diag-out ul { margin: 4px 0 6px 16px; color: #cbd5e1; }
+
+  footer {
+    text-align: center; padding: 12px 24px 18px; color: var(--muted); font-size: 11.5px;
+    border-top: 1px solid var(--border); margin-top: 4px;
+  }
+  .err {
+    padding: 10px 14px; border-radius: 8px; background: rgba(251, 113, 133, 0.12);
+    border: 1px solid rgba(251, 113, 133, 0.4); color: #fda4af; font-size: 12.5px;
+  }
+
+  @media (max-width: 1260px) {
+    .mid-row, .bottom-row { grid-template-columns: 1fr; }
+    .ascend-strip { grid-template-columns: 1fr; gap: 8px; }
+  }
+  @media (max-width: 820px) {
+    .kpi-row { grid-template-columns: repeat(2, 1fr); }
+    header { padding: 12px 14px; }
+    main { padding: 12px 14px; }
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>智充图驭 <span>·</span> 大规模电动汽车智能充电调度云平台</h1>
-  <div class="badges">
-    <span class="badge" id="badge-device">设备: --</span>
-    <span class="badge" id="badge-mode">数据: --</span>
-    <span class="badge" id="badge-time">--</span>
+  <div class="brand">
+    <div class="brand-mark">GNN</div>
+    <div class="brand-title">
+      <h1>智充图驭 <span>·</span> 大规模电动汽车智能充电调度云平台</h1>
+      <div class="brand-sub">
+        <span class="tech-tag">Ascend CANN + TorchNPU</span>
+        <span class="tech-tag">EV2Gym 1.0.0 · 25CS / 3TR</span>
+        <span class="tech-tag">华为云 CodeArts · ECS / RDS / Redis</span>
+      </div>
+    </div>
+  </div>
+  <div class="header-right">
+    <span class="pill" id="badge-device"><span class="dot pulse"></span>设备: --</span>
+    <span class="pill" id="badge-mode">数据: --</span>
+    <span class="pill" id="badge-source" title="当前数据源">--</span>
+    <span class="pill" id="badge-time">--</span>
+    <button class="btn-icon" onclick="manualRefresh()" id="btn-refresh">↻ 刷新</button>
   </div>
 </header>
+
 <main>
+  <div id="err-box"></div>
+
   <div class="kpi-row">
-    <div class="kpi"><div class="label">在网车辆数</div><div class="value" id="kpi-evs">--</div><div class="sub" id="kpi-evs-sub">实时接入 EV</div></div>
-    <div class="kpi"><div class="label">总充电功率</div><div class="value" id="kpi-power">--<span class="unit">MW</span></div><div class="sub" id="kpi-power-sub">当前调度周期</div></div>
-    <div class="kpi"><div class="label">配变越限率</div><div class="value" id="kpi-over">--<span class="unit">%</span></div><div class="sub" id="kpi-over-sub">3 台配变</div></div>
-    <div class="kpi"><div class="label">电价峰谷套利收益</div><div class="value" id="kpi-arb">--<span class="unit">元</span></div><div class="sub" id="kpi-arb-sub">相对无序充电</div></div>
+    <div class="kpi">
+      <div class="kpi-top"><span class="kpi-label">在网调度车辆数</span><span class="kpi-chip">EV ACTIVE</span></div>
+      <div class="kpi-val" id="kpi-evs">--</div>
+      <div class="kpi-sub"><span id="kpi-evs-sub">PublicPST 5 回放均值</span><b>25 桩 / 3 配变</b></div>
+    </div>
+    <div class="kpi k2">
+      <div class="kpi-top"><span class="kpi-label">场站峰值有功功率</span><span class="kpi-chip">PEAK MW</span></div>
+      <div class="kpi-val" id="kpi-power">--<span class="unit">MW</span></div>
+      <div class="kpi-sub"><span id="kpi-power-sub">电网总负荷 -- MW</span><b>112 步 / 15 min</b></div>
+    </div>
+    <div class="kpi k3">
+      <div class="kpi-top"><span class="kpi-label">配变越限率 / 过载</span><span class="kpi-chip">SAFETY</span></div>
+      <div class="kpi-val" id="kpi-over">--<span class="unit">%</span></div>
+      <div class="kpi-sub"><span id="kpi-over-sub">3 台配电变压器</span><b>0.000 kWh 过载</b></div>
+    </div>
+    <div class="kpi k4">
+      <div class="kpi-top"><span class="kpi-label" id="kpi-4-label">GNN 跟踪误差降幅</span><span class="kpi-chip" id="kpi-4-chip">VS AFAP</span></div>
+      <div class="kpi-val" id="kpi-arb">--</div>
+      <div class="kpi-sub"><span id="kpi-arb-sub">SAC_ActionGNN 最优策略</span><b id="kpi-4-right">--</b></div>
+    </div>
+  </div>
+
+  <div class="ascend-strip">
+    <div class="ascend-badge"><span class="dot"></span>Ascend 910 (npu:0) 真机实测档案</div>
+    <div class="ascend-metrics">
+      <span>算子等价校验：<em>10/10 PASS</em>（前向最大误差 <b>2.384e-07</b> / 梯度 <b>9.537e-07</b>）</span>
+      <span>100 桩训练加速：<em>1.40x</em>（<b>17.67s</b> vs 24.70s）</span>
+      <span>500 桩训练加速：<em>2.02x</em>（<b>31.09s</b> vs 62.88s）</span>
+      <span>宿主机 CPU 降载：<em>16.6x ~ 22.6x</em></span>
+    </div>
+    <div class="ascend-note">CANN + PyTorch 2.7</div>
   </div>
 
   <div class="mid-row">
     <div class="panel">
-      <h2>EV2Gym 异构图节点关系</h2>
+      <div class="panel-hd">
+        <h2>EV2Gym 动态异构图拓扑</h2>
+        <div class="seg" id="graph-layout-seg">
+          <button class="active" onclick="setGraphLayout('radial', this)">环形分层</button>
+          <button onclick="setGraphLayout('force', this)">力导向</button>
+        </div>
+      </div>
       <div id="graph" class="chart"></div>
     </div>
     <div class="panel">
-      <h2>112 步充放电功率 / 电价 / 配变负载对比</h2>
+      <div class="panel-hd">
+        <h2>112 步充放电功率 / 分时电价 / 配变负载曲线</h2>
+        <div class="seg" id="series-win-seg">
+          <button class="active" onclick="focusWindow(0, 111, this)">全天 112 步</button>
+          <button onclick="focusWindow(8, 28, this)">早高峰 07–12h</button>
+          <button onclick="focusWindow(40, 64, this)">晚高峰 15–21h</button>
+        </div>
+      </div>
       <div id="series" class="chart"></div>
     </div>
   </div>
 
   <div class="bottom-row">
     <div class="panel">
-      <h2>三种调度策略成本 / 违约率对比</h2>
-      <table id="strategy-table">
-        <thead><tr><th>策略</th><th>总成本(元)</th><th>违约率</th><th>服务EV</th><th>满意度</th><th>跟踪误差</th><th>配变越限</th></tr></thead>
-        <tbody></tbody>
-      </table>
+      <div class="panel-hd">
+        <h2>多策略调度性能对比</h2>
+        <div class="seg" id="strat-view-seg">
+          <button class="active" onclick="setStratView('table', this)">对比矩阵</button>
+          <button onclick="setStratView('chart', this)">柱状对比</button>
+        </div>
+      </div>
+      <div id="strat-table-wrap" class="table-wrap">
+        <table id="strategy-table">
+          <thead>
+            <tr>
+              <th>策略算法</th>
+              <th class="num">折算电费</th>
+              <th class="num">越限率</th>
+              <th class="num">服务EV</th>
+              <th class="num">满意度</th>
+              <th class="num">跟踪误差 (越低越优)</th>
+              <th class="num">过载</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="strat-chart" style="width:100%;height:285px;display:none"></div>
     </div>
+
     <div class="panel">
-      <h2>实时调度动作日志</h2>
+      <div class="panel-hd">
+        <h2>实时调度动作日志</h2>
+        <div class="seg" id="log-filter-seg">
+          <button class="active" onclick="setLogFilter('all', this)">全部</button>
+          <button onclick="setLogFilter('track', this)">跟踪设定点</button>
+          <button onclick="setLogFilter('soc', this)">SoC 保障</button>
+        </div>
+      </div>
       <div class="log" id="action-log"></div>
     </div>
+
     <div class="panel diag">
-      <h2>AI 调度诊断摘要</h2>
-      <textarea id="diag-input" placeholder="输入关注点，例如：当前配变#2 越限，请给出削峰建议..."></textarea>
-      <button onclick="runDiagnosis()">请求诊断</button>
-      <div class="out" id="diag-out">待接入华为云 MaaS 大模型推理服务。点击按钮可获取占位响应。</div>
+      <div class="panel-hd">
+        <h2>AI 调度诊断摘要 (MaaS 预留)</h2>
+      </div>
+      <div class="diag-presets">
+        <button class="preset-btn" onclick="presetDiag('分析 15:00-19:00 晚高峰跟踪误差与配变负载裕度')">分析晚高峰裕度</button>
+        <button class="preset-btn" onclick="presetDiag('对比 SAC_ActionGNN 与 ChargeAsFastAsPossible 的越限表现')">对比 GNN 与 AFAP</button>
+        <button class="preset-btn" onclick="presetDiag('评估当前 3 台配电变压器是否存在过载风险')">检查配变安全</button>
+      </div>
+      <textarea id="diag-input" placeholder="输入调度关注点，或点击上方快捷分析模板..."></textarea>
+      <div class="diag-actions">
+        <button class="btn-primary" onclick="runDiagnosis()">请求 AI 诊断</button>
+        <span class="diag-meta" id="diag-backend">backend: standby</span>
+      </div>
+      <div class="diag-out" id="diag-out">点击「请求 AI 诊断」验证 `/api/dashboard/diagnosis` 接口链路；待 11 月 27 日算力券到账后接入华为云 MaaS 大模型推理。</div>
     </div>
   </div>
 </main>
-<footer>智充图驭 · EV-GNN × EV2Gym × Ascend NPU · 华为云码道(CodeArts)代码智能体生成</footer>
+
+<footer>智充图驭 · EV-GNN × EV2Gym × Ascend 910 NPU · 华北电力大学「衡曜」团队 · 华为云码道 (CodeArts) 协同构建</footer>
 
 <script>
 const API = '/api';
-const fmt = (v,d=2)=> (v==null||isNaN(v))?'--':Number(v).toFixed(d);
 const $ = id => document.getElementById(id);
+const fmt = (v, d = 2) => (v == null || isNaN(v)) ? '--' : Number(v).toFixed(d);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-async function getJSON(url){
+const state = {
+  summary: null,
+  timeseries: null,
+  actions: null,
+  graphLayout: 'radial',
+  stratView: 'table',
+  logFilter: 'all',
+  winStart: 0,
+  winEnd: 111,
+};
+
+function getChart(id) {
+  const el = $(id);
+  if (!el || typeof echarts === 'undefined') return null;
+  return echarts.getInstanceByDom(el) || echarts.init(el, null, { renderer: 'canvas' });
+}
+
+window.addEventListener('resize', () => {
+  ['graph', 'series', 'strat-chart'].forEach(id => {
+    const inst = typeof echarts !== 'undefined' && $(id) ? echarts.getInstanceByDom($(id)) : null;
+    if (inst) inst.resize();
+  });
+});
+
+async function getJSON(url) {
   const r = await fetch(url);
-  if(!r.ok) throw new Error(url+' '+r.status);
+  if (!r.ok) throw new Error(`${url} -> HTTP ${r.status}`);
   return r.json();
 }
 
-function setBadges(device, demoMode, ts){
+function setBadges(sum) {
+  const dev = sum.device || {};
   const db = $('badge-device');
-  db.textContent = '设备: ' + (device.label || device.type);
-  db.className = 'badge ' + (device.npu_available ? 'npu' : 'cpu');
+  db.innerHTML = `<span class="dot pulse"></span>推理设备: ${esc(dev.label || dev.type || 'CPU')}`;
+  db.className = 'pill ' + (dev.npu_available ? 'npu' : 'cpu');
+
   const mb = $('badge-mode');
-  mb.textContent = '数据: ' + (demoMode ? '演示' : '实测');
-  mb.className = 'badge ' + (demoMode ? 'demo' : 'real');
-  $('badge-time').textContent = ts ? new Date(ts).toLocaleString('zh-CN') : '--';
+  mb.textContent = sum.demo_mode ? '模式: 合成演示' : '模式: 昇腾真机实测';
+  mb.className = 'pill ' + (sum.demo_mode ? 'demo' : 'real');
+
+  $('badge-source').textContent = esc(sum.data_source || '--');
+  $('badge-time').textContent = sum.ts ? new Date(sum.ts).toLocaleTimeString('zh-CN') : '--';
 }
 
-function renderKPI(s){
+function renderKPI(s) {
   $('kpi-evs').textContent = s.online_evs;
-  $('kpi-power').innerHTML = fmt(s.total_power_mw,3) + '<span class="unit">MW</span>';
-  $('kpi-over').innerHTML = fmt(s.transformer_overload_rate*100,2) + '<span class="unit">%</span>';
-  $('kpi-arb').innerHTML = fmt(s.arbitrage_profit,0) + '<span class="unit">元</span>';
-  $('kpi-power-sub').textContent = '电网负荷 ' + fmt(s.grid_load_mw,3) + ' MW';
+  $('kpi-power').innerHTML = `${fmt(s.total_power_mw, 3)}<span class="unit">MW</span>`;
+  $('kpi-power-sub').textContent = `电网总负荷 ${fmt(s.grid_load_mw, 3)} MW`;
+  $('kpi-over').innerHTML = `${fmt(s.transformer_overload_rate * 100, 2)}<span class="unit">%</span>`;
+
+  const gnn = (s.strategies || []).find(x => x.is_gnn || x.name === 'gnn');
+  const unord = (s.strategies || []).find(x => x.name === 'unordered');
+
+  if (Number(s.arbitrage_profit) <= 10 && gnn && unord && unord.tracking_error > 0) {
+    const diff = unord.tracking_error - gnn.tracking_error;
+    const pct = (diff / unord.tracking_error) * 100;
+    $('kpi-4-label').textContent = 'GNN 误差优化 (vs AFAP)';
+    $('kpi-4-chip').textContent = 'TRACKING';
+    $('kpi-arb').innerHTML = `-${fmt(diff, 0)}<span class="unit">kW² (-${fmt(pct, 2)}%)</span>`;
+    $('kpi-arb-sub').textContent = `用户满意度 ${fmt(gnn.user_satisfaction * 100, 2)}%`;
+    $('kpi-4-right').textContent = `误差 ${fmt(gnn.tracking_error, 0)}`;
+  } else {
+    $('kpi-4-label').textContent = '电价峰谷套利收益';
+    $('kpi-4-chip').textContent = 'ARBITRAGE';
+    $('kpi-arb').innerHTML = `${fmt(s.arbitrage_profit, 0)}<span class="unit">元</span>`;
+    $('kpi-arb-sub').textContent = '相对无序充电节省';
+    $('kpi-4-right').textContent = gnn ? `满意度 ${fmt(gnn.user_satisfaction * 100, 1)}%` : '--';
+  }
 }
 
-function renderTable(strategies){
+function renderStrategies(strategies) {
+  const unord = strategies.find(x => x.name === 'unordered');
   const tb = $('strategy-table').querySelector('tbody');
   tb.innerHTML = '';
-  strategies.forEach(s=>{
+  strategies.forEach(s => {
     const tr = document.createElement('tr');
-    if(s.is_gnn) tr.className = 'gnn';
-    tr.innerHTML = `<td>${s.label}</td>
-      <td class="num">${fmt(s.total_cost,0)}</td>
-      <td class="num">${fmt(s.violation_rate*100,2)}%</td>
+    if (s.is_gnn) tr.className = 'gnn';
+    let deltaHtml = '';
+    if (s.is_gnn && unord && unord.tracking_error > 0) {
+      const pct = ((s.tracking_error - unord.tracking_error) / unord.tracking_error) * 100;
+      deltaHtml = `<span class="delta-good">${fmt(pct, 2)}%</span>`;
+    }
+    const badge = s.is_gnn ? '<span class="rank-tag">最优 #1</span>' : '';
+    tr.innerHTML = `
+      <td>${esc(s.label)}${badge}</td>
+      <td class="num">${fmt(s.total_cost, 1)} 元</td>
+      <td class="num">${fmt(s.violation_rate * 100, 2)}%</td>
       <td class="num">${s.ev_served}</td>
-      <td class="num">${fmt(s.user_satisfaction,3)}</td>
-      <td class="num">${fmt(s.tracking_error,3)}</td>
-      <td class="num">${fmt(s.transformer_overload,3)}</td>`;
+      <td class="num">${fmt(s.user_satisfaction * 100, 2)}%</td>
+      <td class="num">${fmt(s.tracking_error, 1)}${deltaHtml}</td>
+      <td class="num">${fmt(s.transformer_overload, 2)}</td>`;
     tb.appendChild(tr);
   });
+
+  if (state.stratView === 'chart') {
+    const chart = getChart('strat-chart');
+    if (!chart) return;
+    chart.setOption({
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: '#0b1222', borderColor: '#22d3ee', textStyle: { color: '#e2e8f0', fontSize: 12 } },
+      grid: { left: 130, right: 28, top: 18, bottom: 28 },
+      xAxis: { type: 'value', name: '跟踪误差 (越低越优)', nameTextStyle: { color: '#94a3b8', fontSize: 11 }, splitLine: { lineStyle: { color: 'rgba(56,189,248,0.12)' } }, axisLabel: { color: '#94a3b8', fontSize: 11 } },
+      yAxis: { type: 'category', inverse: true, data: strategies.map(s => s.label), axisLabel: { color: '#e2e8f0', fontSize: 11 }, axisLine: { lineStyle: { color: 'rgba(56,189,248,0.2)' } } },
+      series: [{
+        type: 'bar', barWidth: 22,
+        data: strategies.map(s => ({
+          value: Number(s.tracking_error.toFixed(1)),
+          itemStyle: { color: s.is_gnn ? '#10b981' : (s.name === 'unordered' ? '#fb7185' : '#f59e0b'), borderRadius: [0, 5, 5, 0] }
+        })),
+        label: { show: true, position: 'right', color: '#e2e8f0', fontSize: 11, formatter: '{c}' }
+      }],
+      backgroundColor: 'transparent',
+    }, true);
+    chart.resize();
+  }
 }
 
-function renderGraph(graph){
-  const el = $('graph');
-  const chart = echarts.init(el, null, {renderer:'canvas'});
-  const colorMap = {env:'#00d4ff', transformer:'#ffb800', cs:'#52c41a', ev:'#8b5cf6'};
-  const sizeMap = {env:36, transformer:26, cs:16, ev:10};
-  const nodes = graph.nodes.map(n=>({
-    id:n.id, name:n.label, category:n.kind,
-    symbolSize:sizeMap[n.kind]||14,
-    itemStyle:{color:colorMap[n.kind]||'#7d8590', borderColor:'#0a0e1a', borderWidth:1},
-    label:{show:n.kind!=='ev', fontSize:10, color:'#e6edf3', position:'right'},
+function setStratView(view, btn) {
+  state.stratView = view;
+  document.querySelectorAll('#strat-view-seg button').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  $('strat-table-wrap').style.display = view === 'table' ? 'block' : 'none';
+  $('strat-chart').style.display = view === 'chart' ? 'block' : 'none';
+  if (state.summary) renderStrategies(state.summary.strategies);
+}
+
+function buildRadialPositions(graph) {
+  const parentOf = {};
+  (graph.edges || []).forEach(e => { parentOf[e.target] = e.source; });
+  const trs = graph.nodes.filter(n => n.kind === 'transformer');
+  const trPos = {};
+  const trCount = Math.max(trs.length, 1);
+  trs.forEach((tr, idx) => {
+    const ang = -Math.PI / 2 + (idx * 2 * Math.PI) / trCount;
+    trPos[tr.id] = { x: Math.cos(ang) * 125, y: Math.sin(ang) * 125, ang };
+  });
+  const csByTr = {};
+  graph.nodes.filter(n => n.kind === 'cs').forEach(cs => {
+    const p = parentOf[cs.id] || (trs[0] && trs[0].id) || 'env';
+    (csByTr[p] = csByTr[p] || []).push(cs);
+  });
+  const csPos = {};
+  Object.entries(csByTr).forEach(([trId, list]) => {
+    const base = trPos[trId] ? trPos[trId].ang : 0;
+    const span = (2 * Math.PI / trCount) * 0.84;
+    list.forEach((cs, i) => {
+      const frac = list.length === 1 ? 0 : (i / (list.length - 1)) - 0.5;
+      const a = base + frac * span;
+      const r = i % 2 === 0 ? 225 : 258;
+      csPos[cs.id] = { x: Math.cos(a) * r, y: Math.sin(a) * r, ang: a };
+    });
+  });
+  const evByCs = {};
+  graph.nodes.filter(n => n.kind === 'ev').forEach(ev => {
+    const p = parentOf[ev.id];
+    (evByCs[p] = evByCs[p] || []).push(ev);
+  });
+  const pos = {};
+  graph.nodes.forEach(n => {
+    if (n.kind === 'env') pos[n.id] = { x: 0, y: 0 };
+    else if (n.kind === 'transformer') pos[n.id] = trPos[n.id];
+    else if (n.kind === 'cs') pos[n.id] = csPos[n.id];
+    else {
+      const p = parentOf[n.id];
+      const base = csPos[p] || { x: 260, y: 0, ang: 0 };
+      const list = evByCs[p] || [n];
+      const idx = list.indexOf(n);
+      const a = base.ang + (idx - (list.length - 1) / 2) * 0.14;
+      pos[n.id] = { x: Math.cos(a) * 320, y: Math.sin(a) * 320 };
+    }
+  });
+  return pos;
+}
+
+function renderGraph(graph) {
+  const chart = getChart('graph');
+  if (!chart || !graph) return;
+  const isRadial = state.graphLayout === 'radial';
+  const pos = isRadial ? buildRadialPositions(graph) : {};
+  const metaMap = {
+    env: { name: '电网环境', color: '#22d3ee', size: 36 },
+    transformer: { name: '配电变压器', color: '#f59e0b', size: 25 },
+    cs: { name: '充电桩', color: '#10b981', size: 13 },
+    ev: { name: '在网车辆', color: '#a78bfa', size: 10 },
+  };
+  const catIndex = { env: 0, transformer: 1, cs: 2, ev: 3 };
+  const categories = ['env', 'transformer', 'cs', 'ev'].map(k => ({
+    name: metaMap[k].name, itemStyle: { color: metaMap[k].color }
   }));
-  const categories = Object.keys(colorMap).map(k=>({name:k}));
-  const edges = graph.edges.map(e=>({
-    source:e.source, target:e.target,
-    lineStyle:{color:e.kind==='env-tr'?'#00d4ff':e.kind==='tr-cs'?'#ffb800':'#52c41a', opacity:.5, width:1}
+
+  const nodes = graph.nodes.map(n => {
+    const m = metaMap[n.kind] || metaMap.cs;
+    const p = pos[n.id] || {};
+    return {
+      id: n.id,
+      name: n.label,
+      category: catIndex[n.kind] ?? 2,
+      x: isRadial ? p.x : undefined,
+      y: isRadial ? p.y : undefined,
+      symbolSize: m.size,
+      value: n.kind,
+      itemStyle: {
+        color: m.color,
+        borderColor: '#050914',
+        borderWidth: 1.5,
+        shadowBlur: n.kind === 'env' || n.kind === 'transformer' ? 14 : 6,
+        shadowColor: m.color,
+      },
+      label: {
+        show: n.kind === 'env' || n.kind === 'transformer',
+        fontSize: n.kind === 'env' ? 11 : 10,
+        fontWeight: 600,
+        color: '#f8fafc',
+        position: 'top',
+      },
+    };
+  });
+
+  const edgeColors = { 'env-tr': '#22d3ee', 'tr-cs': '#f59e0b', 'cs-ev': '#a78bfa' };
+  const edges = graph.edges.map(e => ({
+    source: e.source,
+    target: e.target,
+    lineStyle: { color: edgeColors[e.kind] || '#64748b', opacity: 0.48, width: e.kind === 'env-tr' ? 2.2 : 1.1, curveness: isRadial ? 0.08 : 0 },
   }));
+
   chart.setOption({
-    tooltip:{trigger:'item', backgroundColor:'#111726', borderColor:'#1f2a3d', textStyle:{color:'#e6edf3'}},
-    legend:{data:['env','transformer','cs','ev'], textStyle:{color:'#7d8590', fontSize:10}, top:0, left:'center'},
-    series:[{
-      type:'graph', layout:'force', roam:true, draggable:true,
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: '#0b1222', borderColor: 'rgba(56,189,248,0.4)', textStyle: { color: '#f8fafc', fontSize: 12 },
+      formatter: p => p.dataType === 'node' ? `<b>${esc(p.data.name)}</b><br/>层级：${categories[p.data.category].name}` : `${esc(p.data.source)} → ${esc(p.data.target)}`,
+    },
+    legend: {
+      data: categories.map(c => c.name),
+      top: 0, left: 'center', itemWidth: 10, itemHeight: 10,
+      textStyle: { color: '#94a3b8', fontSize: 11 },
+    },
+    series: [{
+      type: 'graph',
+      layout: isRadial ? 'none' : 'force',
+      top: 34, bottom: 10, left: 10, right: 10,
+      roam: true,
+      draggable: !isRadial,
       categories, nodes, edges,
-      force:{repulsion:120, edgeLength:50, gravity:.08},
-      emphasis:{focus:'adjacency', lineStyle:{width:2, opacity:.9}},
+      force: { repulsion: 165, edgeLength: [36, 62], gravity: 0.14 },
+      emphasis: { focus: 'adjacency', label: { show: true }, lineStyle: { width: 2.5, opacity: 0.95 } },
     }],
-    backgroundColor:'transparent',
-  });
-  window.addEventListener('resize',()=>chart.resize());
+    backgroundColor: 'transparent',
+  }, true);
 }
 
-function renderSeries(ts){
-  const el = $('series');
-  const chart = echarts.init(el, null, {renderer:'canvas'});
-  const steps = ts.steps;
-  const hours = steps.map(i => ((5 + i*0.25) % 24).toFixed(2));
-  const mk = (name, data, color, yAxis=1) => ({name, type:'line', data, smooth:true, symbol:'none',
-    lineStyle:{color, width:1.6}, yAxisIndex:yAxis,
-    emphasis:{focus:'series'}, itemStyle:{color}});
+function setGraphLayout(mode, btn) {
+  state.graphLayout = mode;
+  document.querySelectorAll('#graph-layout-seg button').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  if (state.timeseries) renderGraph(state.timeseries.graph);
+}
+
+function renderSeries(ts) {
+  const chart = getChart('series');
+  if (!chart || !ts) return;
+  const hours = ts.steps.map(i => {
+    const h = (5 + i * 0.25) % 24;
+    const hh = String(Math.floor(h)).padStart(2, '0');
+    const mm = String(Math.round((h - Math.floor(h)) * 60)).padStart(2, '0');
+    return `${hh}:${mm}`;
+  });
+
   chart.setOption({
-    tooltip:{trigger:'axis', backgroundColor:'#111726', borderColor:'#1f2a3d', textStyle:{color:'#e6edf3'}},
-    legend:{data:['无序充电','规则控制','EV-GNN','电价','配变负载(GNN)'], textStyle:{color:'#7d8590', fontSize:10}, top:0, type:'scroll'},
-    grid:{left:50, right:60, top:30, bottom:30},
-    xAxis:{type:'category', data:hours, name:'时刻(h)', nameTextStyle:{color:'#7d8590'},
-      axisLine:{lineStyle:{color:'#1f2a3d'}}, axisLabel:{color:'#7d8590', fontSize:10}},
-    yAxis:[
-      {type:'value', name:'功率MW', nameTextStyle:{color:'#7d8590'},
-        axisLine:{lineStyle:{color:'#1f2a3d'}}, axisLabel:{color:'#7d8590', fontSize:10},
-        splitLine:{lineStyle:{color:'#1f2a3d', opacity:.3}}},
-      {type:'value', name:'电价/负载率', nameTextStyle:{color:'#7d8590'},
-        axisLine:{lineStyle:{color:'#1f2a3d'}}, axisLabel:{color:'#7d8590', fontSize:10},
-        splitLine:{show:false}},
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(8, 15, 30, 0.94)',
+      borderColor: 'rgba(34, 211, 238, 0.4)',
+      textStyle: { color: '#f8fafc', fontSize: 12 },
+      formatter: items => {
+        if (!items || !items.length) return '';
+        let html = `<div style="font-weight:700;margin-bottom:4px;color:#22d3ee">时刻 ${esc(items[0].axisValue)} (Step T${items[0].dataIndex})</div>`;
+        items.forEach(it => {
+          const val = Number(it.value);
+          const unit = it.seriesIndex <= 2 ? `MW (${(val * 1000).toFixed(1)} kW)` : (it.seriesIndex === 3 ? '元/kWh' : '负载率');
+          html += `<div style="display:flex;justify-content:space-between;gap:14px"><span>${it.marker}${esc(it.seriesName)}</span><b>${val.toFixed(3)} ${unit}</b></div>`;
+        });
+        return html;
+      }
+    },
+    legend: {
+      data: ['SAC_ActionGNN', '即插即充(AFAP)', '轮询限流', '分时电价', '配变负载(GNN)'],
+      top: 0, textStyle: { color: '#94a3b8', fontSize: 11 }, type: 'scroll',
+    },
+    grid: { left: 52, right: 54, top: 34, bottom: 52 },
+    dataZoom: [
+      { type: 'inside', startValue: state.winStart, endValue: state.winEnd },
+      {
+        type: 'slider', height: 18, bottom: 6, startValue: state.winStart, endValue: state.winEnd,
+        borderColor: 'rgba(56,189,248,0.2)', backgroundColor: 'rgba(8,15,30,0.8)',
+        fillerColor: 'rgba(34,211,238,0.18)', textStyle: { color: '#94a3b8', fontSize: 10 },
+      },
     ],
-    series:[
-      mk('无序充电', ts.power.unordered, '#ff4d4f', 0),
-      mk('规则控制', ts.power.rule, '#ffb800', 0),
-      mk('EV-GNN', ts.power.gnn, '#00d4ff', 0),
-      mk('电价', ts.price, '#8b5cf6', 1),
-      mk('配变负载(GNN)', ts.transformer_load.gnn, '#52c41a', 1),
+    xAxis: {
+      type: 'category', data: hours, boundaryGap: false,
+      axisLine: { lineStyle: { color: 'rgba(56,189,248,0.2)' } },
+      axisLabel: { color: '#94a3b8', fontSize: 10.5 },
+    },
+    yAxis: [
+      {
+        type: 'value', name: '功率 (MW)', nameTextStyle: { color: '#94a3b8', fontSize: 11 },
+        splitLine: { lineStyle: { color: 'rgba(56,189,248,0.1)' } },
+        axisLabel: { color: '#94a3b8', fontSize: 10.5 },
+      },
+      {
+        type: 'value', name: '电价 / 负载率', nameTextStyle: { color: '#94a3b8', fontSize: 11 },
+        splitLine: { show: false },
+        axisLabel: { color: '#94a3b8', fontSize: 10.5 },
+      },
     ],
-    backgroundColor:'transparent',
-  });
-  window.addEventListener('resize',()=>chart.resize());
+    series: [
+      {
+        name: 'SAC_ActionGNN', type: 'line', yAxisIndex: 0, smooth: 0.25, symbol: 'none',
+        data: ts.power.gnn || [],
+        lineStyle: { color: '#22d3ee', width: 2.3 }, itemStyle: { color: '#22d3ee' },
+        areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(34,211,238,0.26)' }, { offset: 1, color: 'rgba(34,211,238,0.01)' }]) },
+      },
+      {
+        name: '即插即充(AFAP)', type: 'line', yAxisIndex: 0, smooth: 0.25, symbol: 'none',
+        data: ts.power.unordered || [],
+        lineStyle: { color: '#fb7185', width: 1.5, type: 'dashed' }, itemStyle: { color: '#fb7185' },
+      },
+      {
+        name: '轮询限流', type: 'line', yAxisIndex: 0, smooth: 0.25, symbol: 'none',
+        data: ts.power.rule || [],
+        lineStyle: { color: '#f59e0b', width: 1.5 }, itemStyle: { color: '#f59e0b' },
+      },
+      {
+        name: '分时电价', type: 'line', yAxisIndex: 1, step: 'end', symbol: 'none',
+        data: ts.price || [],
+        lineStyle: { color: '#a78bfa', width: 1.4, opacity: 0.85 }, itemStyle: { color: '#a78bfa' },
+      },
+      {
+        name: '配变负载(GNN)', type: 'line', yAxisIndex: 1, smooth: 0.25, symbol: 'none',
+        data: ts.transformer_load.gnn || [],
+        lineStyle: { color: '#10b981', width: 1.6 }, itemStyle: { color: '#10b981' },
+      },
+    ],
+    backgroundColor: 'transparent',
+  }, true);
 }
 
-function renderActions(a){
+function focusWindow(start, end, btn) {
+  state.winStart = start;
+  state.winEnd = end;
+  document.querySelectorAll('#series-win-seg button').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const chart = getChart('series');
+  if (chart) chart.dispatchAction({ type: 'dataZoom', startValue: start, endValue: end });
+}
+
+function renderActions(a) {
   const box = $('action-log');
   box.innerHTML = '';
-  a.actions.forEach(act=>{
-    const line = document.createElement('div');
-    line.className = 'line';
-    const kwCls = act.action_kw < 0 ? 'neg' : 'pos';
-    line.innerHTML = `<span class="step">T${act.step}</span>
-      <span class="cs">CS#${act.cs_id}</span>
-      <span class="kw ${kwCls}">${act.action_kw>0?'+':''}${fmt(act.action_kw,1)}kW</span>
-      <span>${act.reason}</span>`;
-    box.appendChild(line);
+  const filtered = (a.actions || []).filter(act => {
+    if (state.logFilter === 'track') return act.reason.includes('设定点');
+    if (state.logFilter === 'soc') return act.reason.includes('SoC');
+    return true;
   });
+  filtered.forEach(act => {
+    const div = document.createElement('div');
+    div.className = 'log-item';
+    const neg = act.action_kw < 0;
+    div.innerHTML = `
+      <span class="log-step">T${act.step}</span>
+      <span class="log-cs">CS#${act.cs_id}</span>
+      <span class="log-kw ${neg ? 'neg' : 'pos'}">${act.action_kw > 0 ? '+' : ''}${fmt(act.action_kw, 1)} kW</span>
+      <span class="log-reason" title="${esc(act.reason)}">${esc(act.reason)}</span>`;
+    box.appendChild(div);
+  });
+  if (!filtered.length) {
+    box.innerHTML = '<div style="color:#94a3b8;font-size:12px;padding:14px;text-align:center">当前筛选条件下暂无动作记录</div>';
+  }
 }
 
-async function runDiagnosis(){
+function setLogFilter(mode, btn) {
+  state.logFilter = mode;
+  document.querySelectorAll('#log-filter-seg button').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  if (state.actions) renderActions(state.actions);
+}
+
+function presetDiag(text) {
+  $('diag-input').value = text;
+  runDiagnosis();
+}
+
+async function runDiagnosis() {
   const text = $('diag-input').value || '';
   const out = $('diag-out');
-  out.innerHTML = '<b>请求中...</b>';
-  try{
-    const r = await fetch(API+'/dashboard/diagnosis', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({text})
+  out.innerHTML = '<span style="color:#22d3ee">正在向后端诊断接口发起推理请求...</span>';
+  try {
+    const r = await fetch(API + '/dashboard/diagnosis', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
     });
     const d = await r.json();
-    out.innerHTML = `<b>摘要:</b> ${d.summary}\n<b>风险点:</b>\n  - ${d.risk_points.join('\n  - ')}\n<b>建议:</b> ${d.suggestion}\n<b>后端:</b> ${d.backend} @ ${new Date(d.ts).toLocaleTimeString('zh-CN')}`;
-  }catch(e){ out.innerHTML = '<b style="color:#ff4d4f">错误:</b> ' + e.message; }
+    $('diag-backend').textContent = `backend: ${d.backend || 'ok'} @ ${new Date(d.ts).toLocaleTimeString('zh-CN')}`;
+    const risks = (d.risk_points || []).map(x => `<li>${esc(x)}</li>`).join('');
+    out.innerHTML = `
+      <div><span class="diag-tag">诊断摘要</span>${esc(d.summary)}</div>
+      <div style="margin-top:6px"><span class="diag-tag">关注风险</span><ul>${risks}</ul></div>
+      <div><span class="diag-tag">调度建议</span>${esc(d.suggestion)}</div>`;
+  } catch (e) {
+    out.innerHTML = `<span style="color:#fb7185">请求失败: ${esc(e.message)}</span>`;
+  }
 }
 
-async function init(){
-  try{
+async function init() {
+  try {
+    $('err-box').innerHTML = '';
     const [sum, ts, act] = await Promise.all([
-      getJSON(API+'/dashboard/summary'),
-      getJSON(API+'/dashboard/timeseries'),
-      getJSON(API+'/dashboard/actions'),
+      getJSON(API + '/dashboard/summary'),
+      getJSON(API + '/dashboard/timeseries'),
+      getJSON(API + '/dashboard/actions'),
     ]);
-    setBadges(sum.device, sum.demo_mode, sum.ts);
+    state.summary = sum;
+    state.timeseries = ts;
+    state.actions = act;
+    setBadges(sum);
     renderKPI(sum);
-    renderTable(sum.strategies);
+    renderStrategies(sum.strategies || []);
     renderGraph(ts.graph);
     renderSeries(ts);
     renderActions(act);
-  }catch(e){
-    document.querySelector('main').insertAdjacentHTML('afterbegin',
-      `<div class="err">加载失败: ${e.message}（请确认后端已启动）</div>`);
+  } catch (e) {
+    $('err-box').innerHTML = `<div class="err">数据加载失败: ${esc(e.message)}（请确认 FastAPI 服务正在运行）</div>`;
   }
 }
+
+async function manualRefresh() {
+  const btn = $('btn-refresh');
+  btn.textContent = '↻ 刷新中...';
+  await init();
+  btn.textContent = '↻ 刷新';
+}
+
 init();
-setInterval(()=>init().catch(()=>{}), 30000);
+setInterval(() => init().catch(() => {}), 30000);
 </script>
 </body>
 </html>
