@@ -238,7 +238,7 @@ def evaluator():
 
     #####################################################
 
-    config = yaml.load(open(config_file, 'r'), Loader=yaml.FullLoader)
+    config = yaml.load(open(config_file, 'r'), Loader=yaml.UnsafeLoader)
 
     number_of_charging_stations = config["number_of_charging_stations"]
     n_transformers = config["number_of_transformers"]
@@ -422,7 +422,7 @@ def evaluator():
                         # Load kwargs.yaml as a dictionary
                         with open(f'{load_model_path}kwargs.yaml') as file:
                             kwargs = yaml.load(
-                                file, Loader=yaml.FullLoader)
+                                file, Loader=yaml.UnsafeLoader)
 
                         if hasattr(state_function, 'node_sizes'):
                             fx_node_sizes = state_function.node_sizes
@@ -440,7 +440,7 @@ def evaluator():
 
                             if "extraLayers" in algorithm:
                                 state_dict = torch.load(f'{load_model_path}model.best',
-                                                map_location=device)[
+                                                map_location=device, weights_only=False)[
                                     'policy_state_dict']
                                 new_state_dict = {}
                                 rename_map = {
@@ -500,7 +500,7 @@ def evaluator():
                         # Load kwargs.yaml as a dictionary
                         with open(f'{load_model_path}kwargs.yaml') as file:
                             kwargs = yaml.load(
-                                file, Loader=yaml.FullLoader)
+                                file, Loader=yaml.UnsafeLoader)
 
                         if "ActionGNN" in algorithm:
                             algorithm_name = "TD3_ActionGNN"

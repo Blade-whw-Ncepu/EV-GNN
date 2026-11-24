@@ -17,7 +17,8 @@ epsilon = 1e-6
 def weights_init_(m):
     if isinstance(m, nn.Linear):
         torch.nn.init.xavier_uniform_(m.weight, gain=1)
-        torch.nn.init.constant_(m.bias, 0)
+        if m.bias is not None:
+            torch.nn.init.constant_(m.bias, 0)
 
 
 # [ascend] 设备选择 + 纯张量图算子（去 CUDA / 去 PyG C++ 扩展依赖）

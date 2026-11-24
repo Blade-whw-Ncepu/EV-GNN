@@ -98,7 +98,7 @@ NPU_VER="$(${PY} -c 'import torch_npu;print(torch_npu.__version__)')"
   echo "torch_npu==${NPU_VER}"
   # 镜像里通常还有这些同源包，一并锁住
   for PKG in torchvision torchaudio; do
-    V="$(${PY} -c "import ${PKG};print(${PKG}.__version__)" 2>/dev/null || true)"
+    V="$(${PY} -c "import importlib.metadata as m; print(m.version('${PKG}'))" 2>/dev/null | tail -n 1 || true)"
     if [ -n "${V}" ]; then
       echo "${PKG}==${V}"
     fi
